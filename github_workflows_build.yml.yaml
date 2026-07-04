@@ -1,0 +1,56 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
+
+      - name: Save custom pubspec.yaml and lib/ aside
+        run: |
+          mkdir -p /tmp/custom
+          cp pubspec.yaml /tmp/custom/pubspec.yaml
+          cp -r lib /tmp/custom/lib
+
+      - name: Scaffold a fresh Flutter project (correct Android v2 embedding)
+        run: |
+          flutter create --org com.kharchamanager --project-name kharcha_manager /tmp/scaffold
+
+      - name: Copy platform folders (android, ios, etc.) into repo
+        run: |
+          cp -r /tmp/scaffold/android ./android
+          cp -r /tmp/scaffold/ios ./ios
+          cp -r /tmp/scaffold/web ./web || true
+          cp -r /tmp/scaffold/linux ./linux || true
+          cp -r /tmp/scaffold/macos ./macos || true
+          cp -r /tmp/scaffold/windows ./windows || true
+
+      - name: Restore custom pubspec.yaml and lib/
+        run: |
+          cp /tmp/custom/pubspec.yaml ./pubspec.yaml
+          rm -rf ./lib
+          cp -r /tmp/custom/lib ./lib
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Build APK (release)
+        run: flutter build apk --release
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kharcha-manager-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
