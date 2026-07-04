@@ -43,6 +43,11 @@ jobs:
           rm -rf ./lib
           cp -r /tmp/custom/lib ./lib
 
+      - name: Bump Kotlin version (fixes plugin compatibility)
+        run: |
+          sed -i "s/ext.kotlin_version = '.*'/ext.kotlin_version = '1.9.22'/" android/build.gradle
+          grep -n "kotlin_version" android/build.gradle || true
+
       - name: Get dependencies
         run: flutter pub get
 
