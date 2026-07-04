@@ -144,15 +144,18 @@ jobs:
 
           sed -i 's#distributionUrl=.*#distributionUrl=https\\://services.gradle.org/distributions/gradle-8.4-all.zip#' android/gradle/wrapper/gradle-wrapper.properties
 
-          echo "---- Final settings.gradle ----"
-          cat android/settings.gradle
-          echo "---- Final app/build.gradle (top) ----"
-          head -20 android/app/build.gradle
-          echo "---- Final gradle-wrapper.properties ----"
-          cat android/gradle/wrapper/gradle-wrapper.properties
-
       - name: Get dependencies
         run: flutter pub get
+
+      - name: Remove old adaptive icon XML (forces new plain icon to be used)
+        run: |
+          rm -rf android/app/src/main/res/mipmap-anydpi-v26
+          rm -f android/app/src/main/res/values/colors.xml
+          find android/app/src/main/res -name "ic_launcher_background.xml" -delete
+          find android/app/src/main/res -name "ic_launcher_foreground.xml" -delete
+
+      - name: Generate app icons from source image
+        run: dart run flutter_launcher_icons
 
       - name: Build APK (release)
         run: flutter build apk --release
