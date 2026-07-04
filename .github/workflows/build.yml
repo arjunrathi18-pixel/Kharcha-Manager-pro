@@ -45,7 +45,11 @@ jobs:
 
       - name: Bump Kotlin version (fixes plugin compatibility)
         run: |
-          sed -i "s/ext.kotlin_version = '.*'/ext.kotlin_version = '1.9.22'/" android/build.gradle
+          sed -i 's/id "org.jetbrains.kotlin.android" version "[0-9.]*"/id "org.jetbrains.kotlin.android" version "1.9.22"/' android/settings.gradle
+          sed -i "s/ext.kotlin_version = '.*'/ext.kotlin_version = '1.9.22'/" android/build.gradle || true
+          echo "---- settings.gradle ----"
+          grep -n "kotlin" android/settings.gradle || true
+          echo "---- build.gradle ----"
           grep -n "kotlin_version" android/build.gradle || true
 
       - name: Get dependencies
