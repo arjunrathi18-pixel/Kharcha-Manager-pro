@@ -144,6 +144,13 @@ jobs:
 
           sed -i 's#distributionUrl=.*#distributionUrl=https\\://services.gradle.org/distributions/gradle-8.4-all.zip#' android/gradle/wrapper/gradle-wrapper.properties
 
+          echo "---- Final settings.gradle ----"
+          cat android/settings.gradle
+          echo "---- Final app/build.gradle (top) ----"
+          head -20 android/app/build.gradle
+          echo "---- Final gradle-wrapper.properties ----"
+          cat android/gradle/wrapper/gradle-wrapper.properties
+
       - name: Get dependencies
         run: flutter pub get
 
