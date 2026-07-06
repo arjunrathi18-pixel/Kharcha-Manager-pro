@@ -144,12 +144,47 @@ jobs:
 
           sed -i 's#distributionUrl=.*#distributionUrl=https\\://services.gradle.org/distributions/gradle-8.4-all.zip#' android/gradle/wrapper/gradle-wrapper.properties
 
-          echo "---- Final settings.gradle ----"
-          cat android/settings.gradle
-          echo "---- Final app/build.gradle (top) ----"
-          head -20 android/app/build.gradle
-          echo "---- Final gradle-wrapper.properties ----"
-          cat android/gradle/wrapper/gradle-wrapper.properties
+          sed -i 's#id "org.jetbrains.kotlin.android" version "1.9.22" apply false#id "org.jetbrains.kotlin.android" version "1.9.22" apply false\n    id "com.google.gms.google-services" version "4.4.2" apply false#' android/settings.gradle
+
+          sed -i 's#id "dev.flutter.flutter-gradle-plugin"#id "dev.flutter.flutter-gradle-plugin"\n    id "com.google.gms.google-services"#' android/app/build.gradle
+
+      - name: Copy google-services.json into place
+        run: cp google-services.json android/app/google-services.json
+
+      - name: Ensure INTERNET permission is present in release manifest
+        run: |
+          if ! grep -q "android.permission.INTERNET" android/app/src/main/AndroidManifest.xml; then
+            sed -i '0,/<manifest[^>]*>/s//&\n    <uses-permission android:name="android.permission.INTERNET" \/>/' android/app/src/main/AndroidManifest.xml
+          fi
+          echo "---- AndroidManifest.xml (top) ----"
+          head -15 android/app/src/main/AndroidManifest.xml
+
+      - name: Generate lib/firebase_options.dart from google-services.json
+        run: |
+          API_KEY=$(jq -r '.client[0].api_key[0].current_key' google-services.json)
+          APP_ID=$(jq -r '.client[0].client_info.mobilesdk_app_id' google-services.json)
+          SENDER_ID=$(jq -r '.project_info.project_number' google-services.json)
+          PROJECT_ID=$(jq -r '.project_info.project_id' google-services.json)
+          STORAGE_BUCKET=$(jq -r '.project_info.storage_bucket' google-services.json)
+
+          cat > lib/firebase_options.dart << EOF
+          import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
+
+          class DefaultFirebaseOptions {
+            static FirebaseOptions get currentPlatform => android;
+
+            static const FirebaseOptions android = FirebaseOptions(
+              apiKey: '$API_KEY',
+              appId: '$APP_ID',
+              messagingSenderId: '$SENDER_ID',
+              projectId: '$PROJECT_ID',
+              storageBucket: '$STORAGE_BUCKET',
+            );
+          }
+          EOF
+
+          echo "---- Generated firebase_options.dart ----"
+          cat lib/firebase_options.dart
 
       - name: Get dependencies
         run: flutter pub get
