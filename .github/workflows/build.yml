@@ -112,6 +112,7 @@ jobs:
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_1_8
                   targetCompatibility = JavaVersion.VERSION_1_8
+                  coreLibraryDesugaringEnabled true
               }
 
               kotlinOptions {
@@ -137,6 +138,10 @@ jobs:
               }
           }
 
+          dependencies {
+              coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
+          }
+
           flutter {
               source = "../.."
           }
@@ -151,13 +156,21 @@ jobs:
       - name: Copy google-services.json into place
         run: cp google-services.json android/app/google-services.json
 
-      - name: Ensure INTERNET permission is present in release manifest
+      - name: Ensure required permissions are present in the manifest
         run: |
-          if ! grep -q "android.permission.INTERNET" android/app/src/main/AndroidManifest.xml; then
-            sed -i '0,/<manifest[^>]*>/s//&\n    <uses-permission android:name="android.permission.INTERNET" \/>/' android/app/src/main/AndroidManifest.xml
-          fi
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          for PERM in \
+            "android.permission.INTERNET" \
+            "android.permission.POST_NOTIFICATIONS" \
+            "android.permission.RECEIVE_BOOT_COMPLETED" \
+            "android.permission.SCHEDULE_EXACT_ALARM" \
+            "android.permission.USE_EXACT_ALARM"; do
+            if ! grep -q "$PERM" "$MANIFEST"; then
+              sed -i "0,/<manifest[^>]*>/s//&\n    <uses-permission android:name=\"$PERM\" \/>/" "$MANIFEST"
+            fi
+          done
           echo "---- AndroidManifest.xml (top) ----"
-          head -15 android/app/src/main/AndroidManifest.xml
+          head -25 "$MANIFEST"
 
       - name: Generate lib/firebase_options.dart from google-services.json
         run: |
