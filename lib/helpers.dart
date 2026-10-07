@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'models.dart';
 
 const uuid = Uuid();
@@ -20,6 +21,58 @@ const heroDark2 = Color(0xFF1B4438);
 const expenseColor = Color(0xFFE2876A);
 const incomeColor = Color(0xFF7FC9A0);
 const savingsColor = Color(0xFF7FB8D9);
+
+// Keeps only digits, then assumes a bare 10-digit number is an Indian mobile
+// number missing its country code and prefixes it with 91 (wa.me needs the
+// full international number with no +, spaces or leading zero).
+String sanitizePhoneForWhatsApp(String raw) {
+  var digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
+  if (digits.length == 10) digits = '91$digits';
+  if (digits.startsWith('0') && digits.length == 11) digits = '91${digits.substring(1)}';
+  return digits;
+}
+
+// Opens a WhatsApp chat with `phone` pre-filled with `message`. Returns false
+// (without throwing) if there's no phone number or the link couldn't launch,
+// so callers can show a friendly error instead of crashing.
+Future<bool> openWhatsApp(String phone, String message) async {
+  final clean = sanitizePhoneForWhatsApp(phone);
+  if (clean.isEmpty) return false;
+  final uri = Uri.parse('https://wa.me/$clean?text=${Uri.encodeComponent(message)}');
+  try {
+    return await launchUrl(uri, mode: LaunchMode.externalApplication);
+  } catch (_) {
+    return false;
+  }
+}
+
+// The litres actually delivered on `date`: an explicit override wins (0 =
+// full leave, any other value = a partial/extra day); otherwise an old-style
+// leave note (from before quantity-editing existed) means 0; otherwise it's
+// a normal day at the default rate.
+double effectiveMilkQty(
+  String date,
+  Map<String, double> overrides,
+  Map<String, String> notes,
+  double defaultQty,
+) {
+  if (overrides.containsKey(date)) return overrides[date]!;
+  if (notes.containsKey(date)) return 0.0;
+  return defaultQty;
+}
+
+const _codeChars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I to avoid confusion when read aloud
+
+String generateMilkLinkCode() {
+  final rand = DateTime.now().microsecondsSinceEpoch;
+  var seed = rand;
+  final buffer = StringBuffer();
+  for (var i = 0; i < 6; i++) {
+    seed = (seed * 1103515245 + 12345) & 0x7FFFFFFF;
+    buffer.write(_codeChars[seed % _codeChars.length]);
+  }
+  return buffer.toString();
+}
 
 List<Map<String, dynamic>> computeFuelLog(List<Entry> entries, String vehicleType) {
   final fuel = entries.where((e) {
