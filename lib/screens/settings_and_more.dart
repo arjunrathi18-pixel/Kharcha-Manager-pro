@@ -245,7 +245,8 @@ class SettingsScreen extends StatefulWidget {
   final String lang;
   final Map<String, double> budgets;
   final String? pin;
-  final void Function({bool? dark, String? pin, bool clearPin, Map<String, double>? budgets, String? language}) onUpdate;
+  final String milkMode;
+  final void Function({bool? dark, String? pin, bool clearPin, Map<String, double>? budgets, String? language, String? milkMode}) onUpdate;
 
   const SettingsScreen({
     super.key,
@@ -253,6 +254,7 @@ class SettingsScreen extends StatefulWidget {
     required this.lang,
     required this.budgets,
     required this.pin,
+    required this.milkMode,
     required this.onUpdate,
   });
 
@@ -323,6 +325,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SizedBox(height: 6),
                   const Text(
                     'Currently, only Navigation, Section and Category names change with the language setting. The rest of the screens are English for now.',
+                    style: TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.local_drink, color: goldColor),
+                      SizedBox(width: 10),
+                      Text('Milk Tracking Mode', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ChoiceChip(
+                          label: const Text('Customer'),
+                          selected: widget.milkMode == 'customer',
+                          onSelected: (_) => widget.onUpdate(milkMode: 'customer'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: ChoiceChip(
+                          label: const Text('Milk Vendor'),
+                          selected: widget.milkMode == 'vendor',
+                          onSelected: (_) => widget.onUpdate(milkMode: 'vendor'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Customer: track your own milk and share the bill with your milkman. Vendor: manage multiple customers, bill them, and record payments.',
                     style: TextStyle(fontSize: 11, color: Colors.grey),
                   ),
                 ],
