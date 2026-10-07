@@ -106,6 +106,7 @@ const incomeCats = [
   Category('interest', 'Interest', Icons.trending_up),
   Category('investment', 'Investment Return', Icons.show_chart),
   Category('gift', 'Gift', Icons.card_giftcard),
+  Category('milksales', 'Milk Sales', Icons.local_drink),
   Category('others', 'Others', Icons.more_horiz, custom: true),
 ];
 
@@ -288,6 +289,147 @@ class Reminder {
       dueDate: j['dueDate'],
       recurring: j['recurring'] ?? false,
       done: j['done'] ?? false,
+    );
+  }
+}
+
+/* ============================== RECURRING EXPENSE ============================== */
+// A fixed monthly expense (Netflix, Gym, EMI, etc.) that auto-logs itself as
+// a normal Entry once per month, on or after `dayOfMonth`, without the user
+// re-typing it every month. `lastGeneratedMonth` prevents duplicate logging.
+
+class RecurringExpense {
+  String id;
+  String section;
+  String category;
+  String? vehicleType;
+  double amount;
+  int dayOfMonth;
+  String notes;
+  String customLabel;
+  bool active;
+  String? lastGeneratedMonth;
+
+  RecurringExpense({
+    required this.id,
+    required this.section,
+    required this.category,
+    this.vehicleType,
+    required this.amount,
+    required this.dayOfMonth,
+    this.notes = '',
+    this.customLabel = '',
+    this.active = true,
+    this.lastGeneratedMonth,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'section': section,
+      'category': category,
+      'vehicleType': vehicleType,
+      'amount': amount,
+      'dayOfMonth': dayOfMonth,
+      'notes': notes,
+      'customLabel': customLabel,
+      'active': active,
+      'lastGeneratedMonth': lastGeneratedMonth,
+    };
+  }
+
+  factory RecurringExpense.fromJson(Map<String, dynamic> j) {
+    return RecurringExpense(
+      id: j['id'],
+      section: j['section'],
+      category: j['category'],
+      vehicleType: j['vehicleType'],
+      amount: (j['amount'] as num).toDouble(),
+      dayOfMonth: (j['dayOfMonth'] as num).toInt(),
+      notes: j['notes'] ?? '',
+      customLabel: j['customLabel'] ?? '',
+      active: j['active'] ?? true,
+      lastGeneratedMonth: j['lastGeneratedMonth'],
+    );
+  }
+
+  String label() {
+    final cat = findCat(section, vehicleType, category);
+    final base = cat?.label ?? category;
+    return customLabel.isNotEmpty ? '$base: $customLabel' : base;
+  }
+}
+
+/* ============================== MILK CUSTOMER (Vendor mode) ============================== */
+// Used only when the signed-in user has switched Milk Mode to "Vendor" in
+// Settings — each MilkCustomer is one household the vendor delivers milk to.
+
+class MilkCustomer {
+  String id;
+  String name;
+  String phone;
+  double litresPerDay;
+  double pricePerLitre;
+  Map<String, String> leaves; // date -> note (for a leave OR a partial-quantity day)
+  Map<String, double> quantityOverrides; // date -> actual litres that day (0 = full leave)
+  String? linkedCustomerUid; // set once the customer's own account is linked for live sync
+  String? linkedCustomerName;
+
+  MilkCustomer({
+    required this.id,
+    required this.name,
+    required this.phone,
+    required this.litresPerDay,
+    required this.pricePerLitre,
+    Map<String, String>? leaves,
+    Map<String, double>? quantityOverrides,
+    this.linkedCustomerUid,
+    this.linkedCustomerName,
+  })  : leaves = leaves ?? {},
+        quantityOverrides = quantityOverrides ?? {};
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'phone': phone,
+      'litresPerDay': litresPerDay,
+      'pricePerLitre': pricePerLitre,
+      'leaves': leaves.entries.map((e) => {'date': e.key, 'reason': e.value}).toList(),
+      'quantityOverrides': quantityOverrides.entries.map((e) => {'date': e.key, 'quantity': e.value}).toList(),
+      'linkedCustomerUid': linkedCustomerUid,
+      'linkedCustomerName': linkedCustomerName,
+    };
+  }
+
+  factory MilkCustomer.fromJson(Map<String, dynamic> j) {
+    final leavesRaw = (j['leaves'] as List? ?? []);
+    final parsed = <String, String>{};
+    for (final item in leavesRaw) {
+      if (item is Map) {
+        final d = item['date']?.toString();
+        if (d != null) parsed[d] = item['reason']?.toString() ?? '';
+      }
+    }
+    final overridesRaw = (j['quantityOverrides'] as List? ?? []);
+    final parsedOverrides = <String, double>{};
+    for (final item in overridesRaw) {
+      if (item is Map) {
+        final d = item['date']?.toString();
+        final q = item['quantity'];
+        if (d != null && q != null) parsedOverrides[d] = (q as num).toDouble();
+      }
+    }
+    return MilkCustomer(
+      id: j['id'],
+      name: j['name'],
+      phone: j['phone'] ?? '',
+      litresPerDay: (j['litresPerDay'] as num).toDouble(),
+      pricePerLitre: (j['pricePerLitre'] as num).toDouble(),
+      leaves: parsed,
+      quantityOverrides: parsedOverrides,
+      linkedCustomerUid: j['linkedCustomerUid'],
+      linkedCustomerName: j['linkedCustomerName'],
     );
   }
 }
