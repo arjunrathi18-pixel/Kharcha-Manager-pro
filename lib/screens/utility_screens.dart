@@ -11,21 +11,25 @@ import '../helpers.dart';
 
 class MilkScreen extends StatefulWidget {
   final Map<String, String> milkLeaves;
+  final Map<String, double> quantityOverrides;
   final double litresPerDay;
   final double pricePerLitre;
-  final void Function(String date, String reason) onAddLeave;
-  final void Function(String date) onRemoveLeave;
-  final void Function({double? litresPerDay, double? pricePerLitre}) onUpdateSettings;
+  final String? milkmanPhone;
+  final void Function(String date, double quantity, String note) onSetDayQuantity;
+  final void Function(String date) onResetDay;
+  final void Function({double? litresPerDay, double? pricePerLitre, String? milkmanPhone}) onUpdateSettings;
   final void Function(Entry) onRecordPayment;
   final void Function(Reminder) onAddReminder;
 
   const MilkScreen({
     super.key,
     required this.milkLeaves,
+    required this.quantityOverrides,
     required this.litresPerDay,
     required this.pricePerLitre,
-    required this.onAddLeave,
-    required this.onRemoveLeave,
+    required this.milkmanPhone,
+    required this.onSetDayQuantity,
+    required this.onResetDay,
     required this.onUpdateSettings,
     required this.onRecordPayment,
     required this.onAddReminder,
@@ -39,7 +43,9 @@ class _MilkScreenState extends State<MilkScreen> {
   DateTime cursor = DateTime(DateTime.now().year, DateTime.now().month);
   late TextEditingController litresCtrl;
   late TextEditingController rateCtrl;
+  late TextEditingController phoneCtrl;
   late Map<String, String> localLeaves;
+  late Map<String, double> localOverrides;
   bool exporting = false;
 
   @override
@@ -47,64 +53,88 @@ class _MilkScreenState extends State<MilkScreen> {
     super.initState();
     litresCtrl = TextEditingController(text: widget.litresPerDay.toString());
     rateCtrl = TextEditingController(text: widget.pricePerLitre.toString());
+    phoneCtrl = TextEditingController(text: widget.milkmanPhone ?? '');
     localLeaves = Map<String, String>.from(widget.milkLeaves);
+    localOverrides = Map<String, double>.from(widget.quantityOverrides);
   }
+
+  bool dayHasOverride(String iso) => localOverrides.containsKey(iso) || localLeaves.containsKey(iso);
 
   Future<void> handleDayTap(String iso, bool isFuture) async {
     if (isFuture) return;
 
-    if (localLeaves.containsKey(iso)) {
-      final reasonCtrl = TextEditingController(text: localLeaves[iso] ?? '');
-      final action = await showDialog<String>(
-        context: context,
-        builder: (_) {
-          return AlertDialog(
-            title: Text('Leave: $iso'),
-            content: TextField(
-              controller: reasonCtrl,
-              decoration: const InputDecoration(labelText: 'Reason'),
-              maxLines: 2,
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context, 'remove'), child: const Text('Remove Leave')),
-              TextButton(onPressed: () => Navigator.pop(context, 'cancel'), child: const Text('Close')),
-              TextButton(onPressed: () => Navigator.pop(context, 'save'), child: const Text('Save')),
-            ],
-          );
-        },
-      );
-      if (action == 'remove') {
-        setState(() => localLeaves.remove(iso));
-        widget.onRemoveLeave(iso);
-      } else if (action == 'save') {
-        setState(() => localLeaves[iso] = reasonCtrl.text.trim());
-        widget.onAddLeave(iso, reasonCtrl.text.trim());
-      }
-      return;
-    }
+    final currentQty = effectiveMilkQty(iso, localOverrides, localLeaves, widget.litresPerDay);
+    final hasOverride = dayHasOverride(iso);
+    final qtyCtrl = TextEditingController(text: currentQty == currentQty.roundToDouble() ? currentQty.toStringAsFixed(0) : currentQty.toString());
+    final noteCtrl = TextEditingController(text: localLeaves[iso] ?? '');
 
-    final reasonCtrl = TextEditingController();
-    final confirmed = await showDialog<bool>(
+    final action = await showDialog<String>(
       context: context,
       builder: (_) {
         return AlertDialog(
-          title: Text('Mark Leave: $iso'),
-          content: TextField(
-            controller: reasonCtrl,
-            decoration: const InputDecoration(labelText: 'Reason (optional)', hintText: 'e.g. Went out of town'),
-            maxLines: 2,
+          title: Text(iso),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Normal day: ${widget.litresPerDay} L', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+              const SizedBox(height: 10),
+              TextField(
+                controller: qtyCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Litres delivered this day (0 = leave)'),
+                autofocus: true,
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: noteCtrl,
+                decoration: const InputDecoration(labelText: 'Note (optional)', hintText: 'e.g. extra 1L, or leave reason'),
+                maxLines: 2,
+              ),
+            ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-            TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Mark Leave')),
+            if (hasOverride)
+              TextButton(onPressed: () => Navigator.pop(context, 'reset'), child: const Text('Reset to Normal')),
+            TextButton(onPressed: () => Navigator.pop(context, 'cancel'), child: const Text('Cancel')),
+            TextButton(onPressed: () => Navigator.pop(context, 'save'), child: const Text('Save')),
           ],
         );
       },
     );
-    if (confirmed == true) {
-      setState(() => localLeaves[iso] = reasonCtrl.text.trim());
-      widget.onAddLeave(iso, reasonCtrl.text.trim());
+
+    if (action == 'reset') {
+      setState(() {
+        localOverrides.remove(iso);
+        localLeaves.remove(iso);
+      });
+      widget.onResetDay(iso);
+    } else if (action == 'save') {
+      final qty = double.tryParse(qtyCtrl.text) ?? widget.litresPerDay;
+      final note = noteCtrl.text.trim();
+      setState(() {
+        localOverrides[iso] = qty;
+        if (note.isNotEmpty) {
+          localLeaves[iso] = note;
+        } else {
+          localLeaves.remove(iso);
+        }
+      });
+      widget.onSetDayQuantity(iso, qty, note);
     }
+  }
+
+  // Sums the actual litres delivered from day 1 through `uptoDay` of the
+  // given month, honouring any per-day overrides (leave or partial).
+  Map<String, num> monthTotals(int year, int month, int uptoDay) {
+    double litres = 0;
+    int adjustedDays = 0;
+    for (int d = 1; d <= uptoDay; d++) {
+      final iso = '$year-${month.toString().padLeft(2, '0')}-${d.toString().padLeft(2, '0')}';
+      litres += effectiveMilkQty(iso, localOverrides, localLeaves, widget.litresPerDay);
+      if (dayHasOverride(iso)) adjustedDays++;
+    }
+    return {'litres': litres, 'adjustedDays': adjustedDays};
   }
 
   Future<void> exportMonthExcel() async {
@@ -136,7 +166,7 @@ class _MilkScreenState extends State<MilkScreen> {
         xls.TextCellValue('Amount (₹)'),
       ]);
 
-      int leaves = 0;
+      int adjustedDays = 0;
       double totalLitres = 0;
       double totalAmount = 0;
 
@@ -144,18 +174,18 @@ class _MilkScreenState extends State<MilkScreen> {
         final dateObj = DateTime(cursor.year, cursor.month, d);
         final iso = DateFormat('yyyy-MM-dd').format(dateObj);
         final dayName = DateFormat('EEE').format(dateObj);
-        final isLeave = localLeaves.containsKey(iso);
-        final litres = isLeave ? 0.0 : widget.litresPerDay;
+        final hasOverride = dayHasOverride(iso);
+        final litres = effectiveMilkQty(iso, localOverrides, localLeaves, widget.litresPerDay);
         final amount = litres * widget.pricePerLitre;
-        if (isLeave) leaves++;
+        if (hasOverride) adjustedDays++;
         totalLitres += litres;
         totalAmount += amount;
 
         sheet.appendRow([
           xls.TextCellValue(DateFormat('dd MMM yyyy').format(dateObj)),
           xls.TextCellValue(dayName),
-          xls.TextCellValue(isLeave ? 'Leave' : 'Milk Delivered'),
-          xls.TextCellValue(isLeave ? (localLeaves[iso] ?? '') : ''),
+          xls.TextCellValue(litres <= 0 ? 'Leave' : (hasOverride ? 'Adjusted' : 'Milk Delivered')),
+          xls.TextCellValue(hasOverride ? (localLeaves[iso] ?? '') : ''),
           xls.DoubleCellValue(litres),
           xls.DoubleCellValue(widget.pricePerLitre),
           xls.DoubleCellValue(double.parse(amount.toStringAsFixed(2))),
@@ -164,8 +194,8 @@ class _MilkScreenState extends State<MilkScreen> {
 
       sheet.appendRow([]);
       sheet.appendRow([xls.TextCellValue('Total Days'), xls.IntCellValue(daysInMonth)]);
-      sheet.appendRow([xls.TextCellValue('Leaves'), xls.IntCellValue(leaves)]);
-      sheet.appendRow([xls.TextCellValue('Milk Delivered Days'), xls.IntCellValue(daysInMonth - leaves)]);
+      sheet.appendRow([xls.TextCellValue('Adjusted Days (leave/partial)'), xls.IntCellValue(adjustedDays)]);
+      sheet.appendRow([xls.TextCellValue('Normal Days'), xls.IntCellValue(daysInMonth - adjustedDays)]);
       sheet.appendRow([xls.TextCellValue('Total Litre'), xls.DoubleCellValue(double.parse(totalLitres.toStringAsFixed(2)))]);
       sheet.appendRow([xls.TextCellValue('Total Amount (₹)'), xls.DoubleCellValue(double.parse(totalAmount.toStringAsFixed(2)))]);
 
@@ -200,8 +230,8 @@ class _MilkScreenState extends State<MilkScreen> {
     );
   }
 
-  Widget calcCard(String title, String rangeLabel, int totalDays, int leaves, double litres, double amount, {bool isFinal = false}) {
-    final delivered = totalDays - leaves;
+  Widget calcCard(String title, String rangeLabel, int totalDays, int adjustedDays, double litres, double amount, {bool isFinal = false}) {
+    final normalDays = totalDays - adjustedDays;
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       child: Padding(
@@ -214,8 +244,8 @@ class _MilkScreenState extends State<MilkScreen> {
             Text(rangeLabel, style: const TextStyle(color: Colors.grey, fontSize: 12)),
             const Divider(height: 24),
             statRow('Total days', '$totalDays'),
-            statRow('Leaves (milk not delivered)', '$leaves'),
-            statRow('Milk delivered days', '$delivered'),
+            statRow('Normal days', '$normalDays'),
+            statRow('Adjusted days (leave/partial)', '$adjustedDays'),
             statRow('Total litres', litres.toStringAsFixed(1)),
             statRow('Rate', '₹${widget.pricePerLitre.toStringAsFixed(2)} / litre'),
             const Divider(height: 24),
@@ -247,7 +277,7 @@ class _MilkScreenState extends State<MilkScreen> {
                           quantity: litres,
                           rate: widget.pricePerLitre,
                           unitLabel: 'Litre',
-                          notes: '$delivered/$totalDays days delivered, $leaves leaves ($rangeLabel)',
+                          notes: '$normalDays/$totalDays normal days, $adjustedDays adjusted ($rangeLabel)',
                           createdAt: DateTime.now().millisecondsSinceEpoch,
                         );
                         widget.onRecordPayment(entry);
@@ -276,6 +306,28 @@ class _MilkScreenState extends State<MilkScreen> {
                   ),
                 ],
               ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    final message =
+                        '🥛 Milk Bill - ${DateFormat('MMMM yyyy').format(cursor)}\n'
+                        'Normal days: $normalDays/$totalDays\n'
+                        'Rate: ₹${widget.pricePerLitre.toStringAsFixed(2)} / Litre\n'
+                        'Total Litres: ${litres.toStringAsFixed(1)} L\n'
+                        'Total Amount: ${fmtRs(amount)}';
+                    final ok = await openWhatsApp(widget.milkmanPhone ?? '', message);
+                    if (!ok && mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Milkman\'s number is not saved. Add it in Rate Settings above.')),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.chat, size: 18),
+                  label: const Text('Share Bill on WhatsApp'),
+                ),
+              ),
             ],
           ],
         ),
@@ -287,12 +339,12 @@ class _MilkScreenState extends State<MilkScreen> {
   Widget build(BuildContext context) {
     final daysInMonth = DateTime(cursor.year, cursor.month + 1, 0).day;
     final startWeekday = DateTime(cursor.year, cursor.month, 1).weekday % 7;
-    final monthKey = DateFormat('yyyy-MM').format(cursor);
     final now = DateTime.now();
     final isCurrentMonth = cursor.year == now.year && cursor.month == now.month;
 
-    final leavesThisMonth = localLeaves.keys.where((d) => d.startsWith(monthKey)).length;
-    final totalLitres = (daysInMonth - leavesThisMonth) * widget.litresPerDay;
+    final fullMonthTotals = monthTotals(cursor.year, cursor.month, daysInMonth);
+    final totalLitres = fullMonthTotals['litres']!.toDouble();
+    final adjustedDaysThisMonth = fullMonthTotals['adjustedDays']!.toInt();
     final finalAmount = totalLitres * widget.pricePerLitre;
 
     final firstDay = DateTime(cursor.year, cursor.month, 1);
@@ -325,7 +377,7 @@ class _MilkScreenState extends State<MilkScreen> {
                   ),
                   const Padding(
                     padding: EdgeInsets.only(bottom: 8),
-                    child: Text('Tap a date when milk was NOT delivered. Tap again to view or edit the note.', style: TextStyle(fontSize: 11.5, color: Colors.grey)),
+                    child: Text('Tap any date to mark a leave or edit how much milk was delivered that day.', style: TextStyle(fontSize: 11.5, color: Colors.grey)),
                   ),
                   GridView.builder(
                     shrinkWrap: true,
@@ -337,7 +389,9 @@ class _MilkScreenState extends State<MilkScreen> {
                       final day = i - startWeekday + 1;
                       final dateObj = DateTime(cursor.year, cursor.month, day);
                       final iso = DateFormat('yyyy-MM-dd').format(dateObj);
-                      final isLeave = localLeaves.containsKey(iso);
+                      final dayQty = effectiveMilkQty(iso, localOverrides, localLeaves, widget.litresPerDay);
+                      final isLeave = dayHasOverride(iso) && dayQty <= 0;
+                      final isPartial = dayHasOverride(iso) && dayQty > 0;
                       final isFuture = dateObj.isAfter(DateTime(now.year, now.month, now.day));
                       final isToday = iso == todayISO();
 
@@ -349,6 +403,9 @@ class _MilkScreenState extends State<MilkScreen> {
                       } else if (isLeave) {
                         bg = expenseColor.withOpacity(0.85);
                         textColor = Colors.white;
+                      } else if (isPartial) {
+                        bg = goldColor.withOpacity(0.6);
+                        textColor = Colors.black87;
                       } else {
                         bg = incomeColor.withOpacity(0.25);
                         textColor = null;
@@ -376,7 +433,8 @@ class _MilkScreenState extends State<MilkScreen> {
                     spacing: 14,
                     runSpacing: 6,
                     children: [
-                      legendDot(incomeColor.withOpacity(0.4), 'Milk Delivered'),
+                      legendDot(incomeColor.withOpacity(0.4), 'Normal'),
+                      legendDot(goldColor.withOpacity(0.6), 'Adjusted Qty'),
                       legendDot(expenseColor, 'Leave'),
                       legendDot(Colors.grey.withOpacity(0.3), 'Upcoming Date'),
                     ],
@@ -450,6 +508,12 @@ class _MilkScreenState extends State<MilkScreen> {
                     ],
                   ),
                   const SizedBox(height: 10),
+                  TextField(
+                    controller: phoneCtrl,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(labelText: 'Milkman\'s WhatsApp Number'),
+                  ),
+                  const SizedBox(height: 10),
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton(
@@ -457,10 +521,11 @@ class _MilkScreenState extends State<MilkScreen> {
                         widget.onUpdateSettings(
                           litresPerDay: double.tryParse(litresCtrl.text) ?? widget.litresPerDay,
                           pricePerLitre: double.tryParse(rateCtrl.text) ?? widget.pricePerLitre,
+                          milkmanPhone: phoneCtrl.text.trim(),
                         );
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Rate saved')));
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Settings saved')));
                       },
-                      child: const Text('Save Rate'),
+                      child: const Text('Save Settings'),
                     ),
                   ),
                 ],
@@ -471,18 +536,15 @@ class _MilkScreenState extends State<MilkScreen> {
           if (isCurrentMonth) ...[
             Builder(builder: (_) {
               final todayDay = now.day;
-              final leavesTillToday = localLeaves.keys.where((d) {
-                if (!d.startsWith(monthKey)) return false;
-                final dayNum = int.tryParse(d.split('-').last) ?? 0;
-                return dayNum <= todayDay;
-              }).length;
-              final litresTillToday = (todayDay - leavesTillToday) * widget.litresPerDay;
+              final soFarTotals = monthTotals(now.year, now.month, todayDay);
+              final litresTillToday = soFarTotals['litres']!.toDouble();
+              final adjustedDaysTillToday = soFarTotals['adjustedDays']!.toInt();
               final amountTillToday = litresTillToday * widget.pricePerLitre;
               final rangeTillToday = '${DateFormat('d MMM').format(firstDay)} - ${DateFormat('d MMM yyyy').format(now)}';
-              return calcCard('Summary So Far', rangeTillToday, todayDay, leavesTillToday, litresTillToday, amountTillToday);
+              return calcCard('Summary So Far', rangeTillToday, todayDay, adjustedDaysTillToday, litresTillToday, amountTillToday);
             }),
           ],
-          calcCard('Full Month Summary', rangeLabel, daysInMonth, leavesThisMonth, totalLitres, finalAmount, isFinal: true),
+          calcCard('Full Month Summary', rangeLabel, daysInMonth, adjustedDaysThisMonth, totalLitres, finalAmount, isFinal: true),
         ],
       ),
     );
