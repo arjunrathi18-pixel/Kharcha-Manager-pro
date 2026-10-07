@@ -81,8 +81,14 @@ class _KharchaAppState extends State<KharchaApp> {
   List<Reminder> reminders = [];
   Map<String, double> budgets = {'home': 0, 'personal': 0, 'vehicle': 0};
   Map<String, String> milkLeaves = {};
+  Map<String, double> milkQuantityOverrides = {};
   double milkLitresPerDay = 1.0;
   double milkPricePerLitre = 60.0;
+  String? milkmanPhone;
+  String milkMode = 'customer';
+  String? myMilkLinkCode;
+  List<RecurringExpense> recurringExpenses = [];
+  List<MilkCustomer> milkCustomers = [];
   double? electricityLastReading;
   double electricityRatePerUnit = 8.0;
   String? gasLastCylinderDate;
@@ -103,6 +109,7 @@ class _KharchaAppState extends State<KharchaApp> {
   StreamSubscription<User?>? authSub;
   StreamSubscription<DocumentSnapshot>? docSub;
   String? currentUid;
+  String? currentUserName;
 
   @override
   void initState() {
@@ -126,8 +133,14 @@ class _KharchaAppState extends State<KharchaApp> {
         entries = [];
         reminders = [];
         milkLeaves = {};
+        milkQuantityOverrides = {};
         milkLitresPerDay = 1.0;
         milkPricePerLitre = 60.0;
+        milkmanPhone = null;
+        milkMode = 'customer';
+        myMilkLinkCode = null;
+        recurringExpenses = [];
+        milkCustomers = [];
         dark = true;
         pin = null;
         budgets = {'home': 0, 'personal': 0, 'vehicle': 0};
@@ -138,6 +151,7 @@ class _KharchaAppState extends State<KharchaApp> {
     }
 
     currentUid = user.uid;
+    currentUserName = user.displayName;
     docLoadError = null;
     docLoadTimedOut = false;
     final docRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
@@ -165,14 +179,18 @@ class _KharchaAppState extends State<KharchaApp> {
             'entries': [],
             'reminders': [],
             'milkLeaves': [],
-            'milkSettings': {'litresPerDay': 1.0, 'pricePerLitre': 60.0},
+            'milkQuantityOverrides': [],
+            'myMilkLinkCode': null,
+            'milkSettings': {'litresPerDay': 1.0, 'pricePerLitre': 60.0, 'milkmanPhone': null},
             'electricitySettings': {'lastReading': null, 'ratePerUnit': 8.0},
             'gasSettings': {'lastCylinderDate': null, 'cylinderKg': 14.2},
             'waterData': {'presentDays': [], 'ratePerDay': 20.0},
             'rechargeData': {'presentDays': [], 'ratePerDay': 10.0},
             'rechargeLastDate': null,
             'customCategories': [],
-            'settings': {'dark': true, 'pin': null, 'budgets': {'home': 0, 'personal': 0, 'vehicle': 0}},
+            'recurringExpenses': [],
+            'milkCustomers': [],
+            'settings': {'dark': true, 'pin': null, 'budgets': {'home': 0, 'personal': 0, 'vehicle': 0}, 'milkMode': 'customer'},
           });
         } catch (e) {
           if (mounted) setState(() => docLoadError = e.toString());
@@ -183,12 +201,15 @@ class _KharchaAppState extends State<KharchaApp> {
       final entriesRaw = (data['entries'] as List? ?? []);
       final remindersRaw = (data['reminders'] as List? ?? []);
       final milkLeavesRaw = (data['milkLeaves'] as List? ?? []);
+      final milkOverridesRaw = (data['milkQuantityOverrides'] as List? ?? []);
       final milkSettingsRaw = (data['milkSettings'] as Map<String, dynamic>? ?? {});
       final electricityRaw = (data['electricitySettings'] as Map<String, dynamic>? ?? {});
       final gasRaw = (data['gasSettings'] as Map<String, dynamic>? ?? {});
       final waterRaw = (data['waterData'] as Map<String, dynamic>? ?? {});
       final rechargeRaw = (data['rechargeData'] as Map<String, dynamic>? ?? {});
       final customCatsRaw = (data['customCategories'] as List? ?? []);
+      final recurringRaw = (data['recurringExpenses'] as List? ?? []);
+      final milkCustomersRaw = (data['milkCustomers'] as List? ?? []);
       final settingsRaw = (data['settings'] as Map<String, dynamic>? ?? {});
 
       final parsedLeaves = <String, String>{};
@@ -198,6 +219,15 @@ class _KharchaAppState extends State<KharchaApp> {
           if (d != null) parsedLeaves[d] = item['reason']?.toString() ?? '';
         } else if (item is String) {
           parsedLeaves[item] = '';
+        }
+      }
+
+      final parsedMilkOverrides = <String, double>{};
+      for (final item in milkOverridesRaw) {
+        if (item is Map) {
+          final d = item['date']?.toString();
+          final q = item['quantity'];
+          if (d != null && q != null) parsedMilkOverrides[d] = (q as num).toDouble();
         }
       }
 
@@ -220,13 +250,20 @@ class _KharchaAppState extends State<KharchaApp> {
           .toList();
 
       final parsedReminders = remindersRaw.map((r) => Reminder.fromJson(Map<String, dynamic>.from(r))).toList();
+      final parsedRecurring = recurringRaw.map((r) => RecurringExpense.fromJson(Map<String, dynamic>.from(r))).toList();
+      final parsedMilkCustomers = milkCustomersRaw.map((c) => MilkCustomer.fromJson(Map<String, dynamic>.from(c))).toList();
 
       setState(() {
         entries = entriesRaw.map((e) => Entry.fromJson(Map<String, dynamic>.from(e))).toList();
         reminders = parsedReminders;
         milkLeaves = parsedLeaves;
+        milkQuantityOverrides = parsedMilkOverrides;
+        myMilkLinkCode = data['myMilkLinkCode']?.toString();
         milkLitresPerDay = (milkSettingsRaw['litresPerDay'] as num?)?.toDouble() ?? 1.0;
         milkPricePerLitre = (milkSettingsRaw['pricePerLitre'] as num?)?.toDouble() ?? 60.0;
+        milkmanPhone = milkSettingsRaw['milkmanPhone']?.toString();
+        recurringExpenses = parsedRecurring;
+        milkCustomers = parsedMilkCustomers;
         electricityLastReading = (electricityRaw['lastReading'] as num?)?.toDouble();
         electricityRatePerUnit = (electricityRaw['ratePerUnit'] as num?)?.toDouble() ?? 8.0;
         gasLastCylinderDate = gasRaw['lastCylinderDate']?.toString();
@@ -240,6 +277,7 @@ class _KharchaAppState extends State<KharchaApp> {
         globalCustomCategories = parsedCustomCats;
         dark = settingsRaw['dark'] ?? true;
         language = settingsRaw['language'] ?? 'en';
+        milkMode = settingsRaw['milkMode'] ?? 'customer';
         pin = settingsRaw['pin'];
         if (settingsRaw['budgets'] != null) {
           final rawBudgets = settingsRaw['budgets'] as Map;
@@ -251,6 +289,7 @@ class _KharchaAppState extends State<KharchaApp> {
       });
       _docLoadTimeoutTimer?.cancel();
       NotificationService.rescheduleAll(parsedReminders);
+      _processRecurringExpenses(parsedRecurring);
     }, onError: (Object e) {
       if (mounted) setState(() => docLoadError = e.toString());
     });
@@ -274,14 +313,25 @@ class _KharchaAppState extends State<KharchaApp> {
   }
 
   Future<void> _pushSettings() async {
-    await _docRef?.update({'settings': {'dark': dark, 'pin': pin, 'budgets': budgets, 'language': language}});
+    await _docRef?.update({
+      'settings': {'dark': dark, 'pin': pin, 'budgets': budgets, 'language': language, 'milkMode': milkMode}
+    });
   }
 
   Future<void> _pushMilk() async {
     await _docRef?.update({
       'milkLeaves': milkLeaves.entries.map((e) => {'date': e.key, 'reason': e.value}).toList(),
-      'milkSettings': {'litresPerDay': milkLitresPerDay, 'pricePerLitre': milkPricePerLitre},
+      'milkQuantityOverrides': milkQuantityOverrides.entries.map((e) => {'date': e.key, 'quantity': e.value}).toList(),
+      'milkSettings': {'litresPerDay': milkLitresPerDay, 'pricePerLitre': milkPricePerLitre, 'milkmanPhone': milkmanPhone},
     });
+  }
+
+  Future<void> _pushRecurring() async {
+    await _docRef?.update({'recurringExpenses': recurringExpenses.map((r) => r.toJson()).toList()});
+  }
+
+  Future<void> _pushMilkCustomers() async {
+    await _docRef?.update({'milkCustomers': milkCustomers.map((c) => c.toJson()).toList()});
   }
 
   Future<void> _pushElectricity() async {
@@ -446,33 +496,194 @@ class _KharchaAppState extends State<KharchaApp> {
     _pushReminders();
   }
 
-  void updateSettings({bool? dark, String? pin, bool clearPin = false, Map<String, double>? budgets, String? language}) {
+  void updateSettings({bool? dark, String? pin, bool clearPin = false, Map<String, double>? budgets, String? language, String? milkMode}) {
     setState(() {
       if (dark != null) this.dark = dark;
       if (clearPin) this.pin = null;
       if (pin != null) this.pin = pin;
       if (budgets != null) this.budgets = budgets;
       if (language != null) this.language = language;
+      if (milkMode != null) this.milkMode = milkMode;
     });
     _pushSettings();
   }
 
-  void addMilkLeave(String date, String reason) {
-    setState(() => milkLeaves[date] = reason);
+  void setMilkDayQuantity(String date, double quantity, String note) {
+    setState(() {
+      milkQuantityOverrides[date] = quantity;
+      if (note.isNotEmpty) {
+        milkLeaves[date] = note;
+      } else {
+        milkLeaves.remove(date);
+      }
+    });
     _pushMilk();
   }
 
-  void removeMilkLeave(String date) {
-    setState(() => milkLeaves.remove(date));
+  void resetMilkDay(String date) {
+    setState(() {
+      milkQuantityOverrides.remove(date);
+      milkLeaves.remove(date);
+    });
     _pushMilk();
   }
 
-  void updateMilkSettings({double? litresPerDay, double? pricePerLitre}) {
+  void updateMilkSettings({double? litresPerDay, double? pricePerLitre, String? milkmanPhone}) {
     setState(() {
       if (litresPerDay != null) milkLitresPerDay = litresPerDay;
       if (pricePerLitre != null) milkPricePerLitre = pricePerLitre;
+      if (milkmanPhone != null) this.milkmanPhone = milkmanPhone;
     });
     _pushMilk();
+  }
+
+  void addRecurring(RecurringExpense r) {
+    setState(() => recurringExpenses.add(r));
+    _pushRecurring();
+  }
+
+  void updateRecurring(RecurringExpense r) {
+    setState(() {
+      final idx = recurringExpenses.indexWhere((x) => x.id == r.id);
+      if (idx != -1) recurringExpenses[idx] = r;
+    });
+    _pushRecurring();
+  }
+
+  void deleteRecurring(String id) {
+    setState(() => recurringExpenses.removeWhere((r) => r.id == id));
+    _pushRecurring();
+  }
+
+  // Checks every active recurring expense and auto-logs it as a normal
+  // Entry once per month, on or after its chosen day — so fixed bills like
+  // Netflix/Gym/EMI don't need to be re-typed every month.
+  void _processRecurringExpenses(List<RecurringExpense> list) {
+    final now = DateTime.now();
+    final currentMonth = '${now.year}-${now.month.toString().padLeft(2, '0')}';
+    final newEntries = <Entry>[];
+    final updated = <RecurringExpense>[];
+    var changed = false;
+
+    for (final r in list) {
+      if (r.active && r.lastGeneratedMonth != currentMonth && now.day >= r.dayOfMonth) {
+        final dateStr = '$currentMonth-${r.dayOfMonth.toString().padLeft(2, '0')}';
+        newEntries.add(Entry(
+          id: uuid.v4(),
+          section: r.section,
+          category: r.category,
+          vehicleType: r.vehicleType,
+          date: dateStr,
+          amount: r.amount,
+          notes: r.notes.isEmpty ? 'Auto-logged recurring expense' : r.notes,
+          customLabel: r.customLabel,
+          createdAt: DateTime.now().millisecondsSinceEpoch,
+        ));
+        updated.add(RecurringExpense(
+          id: r.id,
+          section: r.section,
+          category: r.category,
+          vehicleType: r.vehicleType,
+          amount: r.amount,
+          dayOfMonth: r.dayOfMonth,
+          notes: r.notes,
+          customLabel: r.customLabel,
+          active: r.active,
+          lastGeneratedMonth: currentMonth,
+        ));
+        changed = true;
+      } else {
+        updated.add(r);
+      }
+    }
+
+    if (changed) {
+      setState(() {
+        entries = [...entries, ...newEntries];
+        recurringExpenses = updated;
+      });
+      _pushEntries();
+      _pushRecurring();
+    }
+  }
+
+  void addMilkCustomer(MilkCustomer c) {
+    setState(() => milkCustomers.add(c));
+    _pushMilkCustomers();
+    _syncLinkedCustomer(c);
+  }
+
+  void updateMilkCustomer(MilkCustomer c) {
+    setState(() {
+      final idx = milkCustomers.indexWhere((x) => x.id == c.id);
+      if (idx != -1) milkCustomers[idx] = c;
+    });
+    _pushMilkCustomers();
+    _syncLinkedCustomer(c);
+  }
+
+  void deleteMilkCustomer(String id) {
+    setState(() => milkCustomers.removeWhere((c) => c.id == id));
+    _pushMilkCustomers();
+  }
+
+  // Mirrors a linked customer's bill into a shared document both the vendor
+  // and that customer's own account can read, so it shows up live on the
+  // customer's phone if they also use this app. Editing still only happens
+  // from the vendor's side — the customer's copy is read-only.
+  Future<void> _syncLinkedCustomer(MilkCustomer c) async {
+    if (c.linkedCustomerUid == null || currentUid == null) return;
+    final linkId = '${currentUid}_${c.linkedCustomerUid}';
+    try {
+      await FirebaseFirestore.instance.collection('milk_shared').doc(linkId).set({
+        'vendorUid': currentUid,
+        'vendorName': currentUserName ?? '',
+        'customerUid': c.linkedCustomerUid,
+        'customerName': c.name,
+        'litresPerDay': c.litresPerDay,
+        'pricePerLitre': c.pricePerLitre,
+        'leaves': c.leaves.entries.map((e) => {'date': e.key, 'reason': e.value}).toList(),
+        'quantityOverrides': c.quantityOverrides.entries.map((e) => {'date': e.key, 'quantity': e.value}).toList(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {
+      // If the Firestore rules for milk_shared haven't been published yet,
+      // fail quietly — the vendor's own records are unaffected either way.
+    }
+  }
+
+  // Lazily creates (once) and returns this account's short code that a
+  // vendor can enter to link this customer for live bill sync.
+  Future<String> ensureMilkLinkCode() async {
+    if (myMilkLinkCode != null) return myMilkLinkCode!;
+    final code = generateMilkLinkCode();
+    try {
+      await FirebaseFirestore.instance.collection('milk_link_codes').doc(code).set({
+        'customerUid': currentUid,
+        'customerName': currentUserName ?? '',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      await _docRef?.update({'myMilkLinkCode': code});
+      setState(() => myMilkLinkCode = code);
+    } catch (_) {}
+    return code;
+  }
+
+  // Looks up a code a vendor typed in and returns the matching customer's
+  // uid/name, or null if the code doesn't exist.
+  Future<Map<String, String>?> resolveLinkCode(String code) async {
+    try {
+      final snap = await FirebaseFirestore.instance.collection('milk_link_codes').doc(code.trim().toUpperCase()).get();
+      if (!snap.exists) return null;
+      final data = snap.data();
+      if (data == null) return null;
+      return {
+        'uid': data['customerUid']?.toString() ?? '',
+        'name': data['customerName']?.toString() ?? '',
+      };
+    } catch (_) {
+      return null;
+    }
   }
 
   void restoreBackup(List<Entry> e, List<Reminder> r) {
@@ -627,6 +838,7 @@ class _KharchaAppState extends State<KharchaApp> {
             return LockScreen(pin: pin!, onUnlock: () => setState(() => locked = false));
           }
           return HomeShell(
+            userId: user.uid,
             userEmail: user.email ?? '',
             userName: user.displayName ?? '',
             entries: entries,
@@ -636,8 +848,13 @@ class _KharchaAppState extends State<KharchaApp> {
             lang: language,
             pin: pin,
             milkLeaves: milkLeaves,
+            milkQuantityOverrides: milkQuantityOverrides,
             milkLitresPerDay: milkLitresPerDay,
             milkPricePerLitre: milkPricePerLitre,
+            milkmanPhone: milkmanPhone,
+            milkMode: milkMode,
+            recurringExpenses: recurringExpenses,
+            milkCustomers: milkCustomers,
             electricityLastReading: electricityLastReading,
             electricityRatePerUnit: electricityRatePerUnit,
             gasLastCylinderDate: gasLastCylinderDate,
@@ -657,9 +874,17 @@ class _KharchaAppState extends State<KharchaApp> {
             onRestore: restoreBackup,
             onLock: () => setState(() => locked = true),
             onSignOut: signOut,
-            onAddMilkLeave: addMilkLeave,
-            onRemoveMilkLeave: removeMilkLeave,
+            onSetDayQuantity: setMilkDayQuantity,
+            onResetDay: resetMilkDay,
             onUpdateMilkSettings: updateMilkSettings,
+            onAddRecurring: addRecurring,
+            onUpdateRecurring: updateRecurring,
+            onDeleteRecurring: deleteRecurring,
+            onAddMilkCustomer: addMilkCustomer,
+            onUpdateMilkCustomer: updateMilkCustomer,
+            onDeleteMilkCustomer: deleteMilkCustomer,
+            onEnsureMilkLinkCode: ensureMilkLinkCode,
+            onResolveLinkCode: resolveLinkCode,
             onUpdateElectricitySettings: updateElectricitySettings,
             onUpdateGasSettings: updateGasSettings,
             onMarkWaterPresent: markWaterPresent,
