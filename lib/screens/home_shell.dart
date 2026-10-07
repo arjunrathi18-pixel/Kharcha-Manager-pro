@@ -8,8 +8,13 @@ import 'grocery_screens.dart';
 import 'entry_sheet.dart';
 import 'tabs.dart';
 import 'settings_and_more.dart';
+import 'recurring_screen.dart';
+import 'vendor_milk_screen.dart';
+import 'monthly_report_screen.dart';
+import 'milk_link_screen.dart';
 
 class HomeShell extends StatefulWidget {
+  final String userId;
   final String userEmail;
   final String userName;
   final List<Entry> entries;
@@ -19,8 +24,13 @@ class HomeShell extends StatefulWidget {
   final String lang;
   final String? pin;
   final Map<String, String> milkLeaves;
+  final Map<String, double> milkQuantityOverrides;
   final double milkLitresPerDay;
   final double milkPricePerLitre;
+  final String? milkmanPhone;
+  final String milkMode;
+  final List<RecurringExpense> recurringExpenses;
+  final List<MilkCustomer> milkCustomers;
   final double? electricityLastReading;
   final double electricityRatePerUnit;
   final String? gasLastCylinderDate;
@@ -36,13 +46,21 @@ class HomeShell extends StatefulWidget {
   final void Function(Reminder) onAddReminder;
   final void Function(String) onToggleReminder;
   final void Function(String) onDeleteReminder;
-  final void Function({bool? dark, String? pin, bool clearPin, Map<String, double>? budgets, String? language}) onUpdateSettings;
+  final void Function({bool? dark, String? pin, bool clearPin, Map<String, double>? budgets, String? language, String? milkMode}) onUpdateSettings;
   final void Function(List<Entry>, List<Reminder>) onRestore;
   final VoidCallback onLock;
   final Future<void> Function() onSignOut;
-  final void Function(String, String) onAddMilkLeave;
-  final void Function(String) onRemoveMilkLeave;
-  final void Function({double? litresPerDay, double? pricePerLitre}) onUpdateMilkSettings;
+  final void Function(String, double, String) onSetDayQuantity;
+  final void Function(String) onResetDay;
+  final void Function({double? litresPerDay, double? pricePerLitre, String? milkmanPhone}) onUpdateMilkSettings;
+  final void Function(RecurringExpense) onAddRecurring;
+  final void Function(RecurringExpense) onUpdateRecurring;
+  final void Function(String) onDeleteRecurring;
+  final void Function(MilkCustomer) onAddMilkCustomer;
+  final void Function(MilkCustomer) onUpdateMilkCustomer;
+  final void Function(String) onDeleteMilkCustomer;
+  final Future<String> Function() onEnsureMilkLinkCode;
+  final Future<Map<String, String>?> Function(String) onResolveLinkCode;
   final void Function({double? lastReading, double? ratePerUnit}) onUpdateElectricitySettings;
   final void Function({String? lastCylinderDate, double? cylinderKg}) onUpdateGasSettings;
   final void Function(String, String) onMarkWaterPresent;
@@ -57,6 +75,7 @@ class HomeShell extends StatefulWidget {
 
   const HomeShell({
     super.key,
+    required this.userId,
     required this.userEmail,
     required this.userName,
     required this.entries,
@@ -66,8 +85,13 @@ class HomeShell extends StatefulWidget {
     required this.lang,
     required this.pin,
     required this.milkLeaves,
+    required this.milkQuantityOverrides,
     required this.milkLitresPerDay,
     required this.milkPricePerLitre,
+    required this.milkmanPhone,
+    required this.milkMode,
+    required this.recurringExpenses,
+    required this.milkCustomers,
     required this.electricityLastReading,
     required this.electricityRatePerUnit,
     required this.gasLastCylinderDate,
@@ -87,9 +111,17 @@ class HomeShell extends StatefulWidget {
     required this.onRestore,
     required this.onLock,
     required this.onSignOut,
-    required this.onAddMilkLeave,
-    required this.onRemoveMilkLeave,
+    required this.onSetDayQuantity,
+    required this.onResetDay,
     required this.onUpdateMilkSettings,
+    required this.onAddRecurring,
+    required this.onUpdateRecurring,
+    required this.onDeleteRecurring,
+    required this.onAddMilkCustomer,
+    required this.onUpdateMilkCustomer,
+    required this.onDeleteMilkCustomer,
+    required this.onEnsureMilkLinkCode,
+    required this.onResolveLinkCode,
     required this.onUpdateElectricitySettings,
     required this.onUpdateGasSettings,
     required this.onMarkWaterPresent,
@@ -113,16 +145,37 @@ class _HomeShellState extends State<HomeShell> {
 
   void openEntrySheet(String section, Category cat, String? vehicleType, {String? date, Entry? existing}) {
     if (section == 'home' && cat.key == 'milk' && existing == null) {
+      if (widget.milkMode == 'vendor') {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) {
+              return VendorMilkScreen(
+                vendorUid: widget.userId,
+                customers: widget.milkCustomers,
+                onAddCustomer: widget.onAddMilkCustomer,
+                onUpdateCustomer: widget.onUpdateMilkCustomer,
+                onDeleteCustomer: widget.onDeleteMilkCustomer,
+                onAddEntry: widget.onAddEntry,
+                onResolveLinkCode: widget.onResolveLinkCode,
+              );
+            },
+          ),
+        );
+        return;
+      }
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) {
             return MilkScreen(
               milkLeaves: widget.milkLeaves,
+              quantityOverrides: widget.milkQuantityOverrides,
               litresPerDay: widget.milkLitresPerDay,
               pricePerLitre: widget.milkPricePerLitre,
-              onAddLeave: widget.onAddMilkLeave,
-              onRemoveLeave: widget.onRemoveMilkLeave,
+              milkmanPhone: widget.milkmanPhone,
+              onSetDayQuantity: widget.onSetDayQuantity,
+              onResetDay: widget.onResetDay,
               onUpdateSettings: widget.onUpdateMilkSettings,
               onRecordPayment: widget.onAddEntry,
               onAddReminder: widget.onAddReminder,
@@ -400,6 +453,54 @@ class _HomeShellState extends State<HomeShell> {
               },
             ),
             ListTile(
+              leading: const Icon(Icons.repeat),
+              title: const Text('Recurring Expenses'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) {
+                      return RecurringExpensesScreen(
+                        recurringExpenses: widget.recurringExpenses,
+                        onAdd: widget.onAddRecurring,
+                        onUpdate: widget.onUpdateRecurring,
+                        onDelete: widget.onDeleteRecurring,
+                      );
+                    },
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.picture_as_pdf_outlined),
+              title: const Text('Monthly Report'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) {
+                      return MonthlyReportScreen(entries: widget.entries, budgets: widget.budgets);
+                    },
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.link),
+              title: const Text('My Milk Link'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => MyMilkLinkScreen(onEnsureLinkCode: widget.onEnsureMilkLinkCode),
+                  ),
+                );
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.download),
               title: const Text('Export / Backup'),
               onTap: () {
@@ -432,6 +533,7 @@ class _HomeShellState extends State<HomeShell> {
                         lang: widget.lang,
                         budgets: widget.budgets,
                         pin: widget.pin,
+                        milkMode: widget.milkMode,
                         onUpdate: widget.onUpdateSettings,
                       );
                     },
