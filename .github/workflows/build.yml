@@ -172,6 +172,15 @@ jobs:
           echo "---- AndroidManifest.xml (top) ----"
           head -25 "$MANIFEST"
 
+      - name: Add package-visibility queries block for url_launcher (WhatsApp links)
+        run: |
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          if ! grep -q "<queries>" "$MANIFEST"; then
+            sed -i "s#</manifest>#    <queries>\n        <intent>\n            <action android:name=\"android.intent.action.VIEW\" />\n            <data android:scheme=\"https\" />\n        </intent>\n    </queries>\n</manifest>#" "$MANIFEST"
+          fi
+          echo "---- AndroidManifest.xml (tail) ----"
+          tail -20 "$MANIFEST"
+
       - name: Generate lib/firebase_options.dart from google-services.json
         run: |
           API_KEY=$(jq -r '.client[0].api_key[0].current_key' google-services.json)
