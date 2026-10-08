@@ -102,6 +102,7 @@ class DashboardTab extends StatelessWidget {
   final Map<String, double> budgets;
   final List<Reminder> reminders;
   final Map<String, String> milkLeaves;
+  final Map<String, double> milkQuantityOverrides;
   final double milkLitresPerDay;
   final double milkPricePerLitre;
   final void Function(Entry) onEditEntry;
@@ -113,6 +114,7 @@ class DashboardTab extends StatelessWidget {
     required this.budgets,
     required this.reminders,
     required this.milkLeaves,
+    required this.milkQuantityOverrides,
     required this.milkLitresPerDay,
     required this.milkPricePerLitre,
     required this.onEditEntry,
@@ -131,15 +133,14 @@ class DashboardTab extends StatelessWidget {
 
     final milkRecordedThisMonth = entries.any((e) => e.category == 'milk' && monthKeyOf(e.date) == thisMonth);
     final todayDay = now.day;
-    final leavesTillToday = milkLeaves.keys.where((d) {
-      if (!d.startsWith(thisMonth)) return false;
-      final dayNum = int.tryParse(d.split('-').last) ?? 0;
-      return dayNum <= todayDay;
-    }).length;
-    final milkAccruedToday = milkRecordedThisMonth
-        ? 0.0
-        : (!milkLeaves.containsKey(today) ? milkLitresPerDay * milkPricePerLitre : 0.0);
-    final milkAccruedMonth = milkRecordedThisMonth ? 0.0 : (todayDay - leavesTillToday) * milkLitresPerDay * milkPricePerLitre;
+    double litresSoFarThisMonth = 0;
+    for (int d = 1; d <= todayDay; d++) {
+      final iso = '${now.year}-${now.month.toString().padLeft(2, '0')}-${d.toString().padLeft(2, '0')}';
+      litresSoFarThisMonth += effectiveMilkQty(iso, milkQuantityOverrides, milkLeaves, milkLitresPerDay);
+    }
+    final litresToday = effectiveMilkQty(today, milkQuantityOverrides, milkLeaves, milkLitresPerDay);
+    final milkAccruedToday = milkRecordedThisMonth ? 0.0 : litresToday * milkPricePerLitre;
+    final milkAccruedMonth = milkRecordedThisMonth ? 0.0 : litresSoFarThisMonth * milkPricePerLitre;
 
     final todayExpense = sum((e) => isExpenseSection(e.section) && e.date == today) + milkAccruedToday;
     final monthExpense = sum((e) => isExpenseSection(e.section) && monthKeyOf(e.date) == thisMonth) + milkAccruedMonth;
@@ -160,14 +161,15 @@ class DashboardTab extends StatelessWidget {
       if (k == 'home' && !milkRecordedThisMonth) {
         for (int d = 1; d <= todayDay; d++) {
           final iso = DateFormat('yyyy-MM-dd').format(DateTime(now.year, now.month, d));
-          if (!milkLeaves.containsKey(iso)) {
+          final qty = effectiveMilkQty(iso, milkQuantityOverrides, milkLeaves, milkLitresPerDay);
+          if (qty > 0) {
             filtered.add(Entry(
               id: 'milk-auto-$iso',
               section: 'home',
               category: 'milk',
               date: iso,
-              amount: milkLitresPerDay * milkPricePerLitre,
-              quantity: milkLitresPerDay,
+              amount: qty * milkPricePerLitre,
+              quantity: qty,
               rate: milkPricePerLitre,
               unitLabel: 'Litre',
               notes: 'Auto (daily milk, not yet recorded)',
