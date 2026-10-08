@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
@@ -64,12 +65,10 @@ double effectiveMilkQty(
 const _codeChars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I to avoid confusion when read aloud
 
 String generateMilkLinkCode() {
-  final rand = DateTime.now().microsecondsSinceEpoch;
-  var seed = rand;
+  final rand = Random.secure();
   final buffer = StringBuffer();
   for (var i = 0; i < 6; i++) {
-    seed = (seed * 1103515245 + 12345) & 0x7FFFFFFF;
-    buffer.write(_codeChars[seed % _codeChars.length]);
+    buffer.write(_codeChars[rand.nextInt(_codeChars.length)]);
   }
   return buffer.toString();
 }
