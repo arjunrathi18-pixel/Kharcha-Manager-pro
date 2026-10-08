@@ -637,7 +637,7 @@ class _KharchaAppState extends State<KharchaApp> {
     try {
       await FirebaseFirestore.instance.collection('milk_shared').doc(linkId).set({
         'vendorUid': currentUid,
-        'vendorName': currentUserName ?? '',
+        'vendorName': FirebaseAuth.instance.currentUser?.displayName ?? currentUserName ?? '',
         'customerUid': c.linkedCustomerUid,
         'customerName': c.name,
         'litresPerDay': c.litresPerDay,
@@ -660,7 +660,7 @@ class _KharchaAppState extends State<KharchaApp> {
     try {
       await FirebaseFirestore.instance.collection('milk_link_codes').doc(code).set({
         'customerUid': currentUid,
-        'customerName': currentUserName ?? '',
+        'customerName': FirebaseAuth.instance.currentUser?.displayName ?? currentUserName ?? '',
         'createdAt': FieldValue.serverTimestamp(),
       });
       await _docRef?.update({'myMilkLinkCode': code});
