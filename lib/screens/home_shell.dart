@@ -365,6 +365,7 @@ class _HomeShellState extends State<HomeShell> {
         budgets: widget.budgets,
         reminders: widget.reminders,
         milkLeaves: widget.milkLeaves,
+        milkQuantityOverrides: widget.milkQuantityOverrides,
         milkLitresPerDay: widget.milkLitresPerDay,
         milkPricePerLitre: widget.milkPricePerLitre,
         onEditEntry: openEditEntry,
