@@ -456,7 +456,7 @@ class _VendorCustomerDetailScreenState extends State<VendorCustomerDetailScreen>
                 children: [
                   Expanded(
                     child: ElevatedButton.icon(
-                      onPressed: () => shareOnWhatsApp(rangeLabel, totalDays, leaves, litres, amount),
+                      onPressed: () => shareOnWhatsApp(rangeLabel, totalDays, adjustedDays, litres, amount),
                       icon: const Icon(Icons.chat, size: 18),
                       label: const Text('Share on WhatsApp'),
                     ),
