@@ -121,6 +121,7 @@ const savingsCats = [
   Category('silver', 'Silver', Icons.inventory),
   Category('stocks', 'Stocks', Icons.show_chart),
   Category('emergency', 'Emergency Fund', Icons.shield),
+  Category('goal', 'Goal Savings', Icons.flag),
   Category('others', 'Others', Icons.more_horiz, custom: true),
 ];
 
@@ -430,6 +431,164 @@ class MilkCustomer {
       quantityOverrides: parsedOverrides,
       linkedCustomerUid: j['linkedCustomerUid'],
       linkedCustomerName: j['linkedCustomerName'],
+    );
+  }
+}
+
+
+/* ============================== SAVINGS GOALS ============================== */
+// A target the user is saving towards (new phone, trip, emergency fund...).
+// Every deposit is a GoalContribution; if the user chose to also record it
+// as a Savings entry, `entryId` links to that Entry so deleting the
+// contribution can remove the matching entry too.
+
+class GoalContribution {
+  String id;
+  String date;
+  double amount;
+  String note;
+  String? entryId;
+
+  GoalContribution({
+    required this.id,
+    required this.date,
+    required this.amount,
+    this.note = '',
+    this.entryId,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'date': date,
+      'amount': amount,
+      'note': note,
+      'entryId': entryId,
+    };
+  }
+
+  factory GoalContribution.fromJson(Map<String, dynamic> j) {
+    return GoalContribution(
+      id: j['id'],
+      date: j['date'],
+      amount: (j['amount'] as num).toDouble(),
+      note: j['note'] ?? '',
+      entryId: j['entryId'],
+    );
+  }
+}
+
+class SavingsGoal {
+  String id;
+  String name;
+  double targetAmount;
+  String? targetDate;
+  String createdDate;
+  List<GoalContribution> contributions;
+
+  SavingsGoal({
+    required this.id,
+    required this.name,
+    required this.targetAmount,
+    this.targetDate,
+    required this.createdDate,
+    List<GoalContribution>? contributions,
+  }) : contributions = contributions ?? [];
+
+  double get saved => contributions.fold(0.0, (s, c) => s + c.amount);
+
+  double get progress {
+    if (targetAmount <= 0) return 0.0;
+    final p = saved / targetAmount;
+    if (p < 0) return 0.0;
+    if (p > 1) return 1.0;
+    return p;
+  }
+
+  bool get completed => targetAmount > 0 && saved >= targetAmount;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'targetAmount': targetAmount,
+      'targetDate': targetDate,
+      'createdDate': createdDate,
+      'contributions': contributions.map((c) => c.toJson()).toList(),
+    };
+  }
+
+  factory SavingsGoal.fromJson(Map<String, dynamic> j) {
+    final raw = (j['contributions'] as List? ?? []);
+    return SavingsGoal(
+      id: j['id'],
+      name: j['name'],
+      targetAmount: (j['targetAmount'] as num).toDouble(),
+      targetDate: j['targetDate'],
+      createdDate: j['createdDate'] ?? '',
+      contributions: raw.map((c) => GoalContribution.fromJson(Map<String, dynamic>.from(c))).toList(),
+    );
+  }
+}
+
+
+/* ============================== PLANNER NOTEPAD ============================== */
+// An upcoming expense the user wants to remember — e.g. "Sweets" for Diwali.
+// `reminderId` links to the Reminder that was created for it (if any) so that
+// editing, completing or deleting the plan also cleans up the notification.
+
+class PlanItem {
+  String id;
+  String title;
+  double amount;
+  String date; // yyyy-MM-dd
+  String occasionCode; // festival code from the panchang catalog, '' if none
+  String occasionName; // display name of the occasion, '' if none
+  String note;
+  bool done;
+  String? reminderId;
+  int? remindDaysBefore;
+
+  PlanItem({
+    required this.id,
+    required this.title,
+    this.amount = 0,
+    required this.date,
+    this.occasionCode = '',
+    this.occasionName = '',
+    this.note = '',
+    this.done = false,
+    this.reminderId,
+    this.remindDaysBefore,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'title': title,
+      'amount': amount,
+      'date': date,
+      'occasionCode': occasionCode,
+      'occasionName': occasionName,
+      'note': note,
+      'done': done,
+      'reminderId': reminderId,
+      'remindDaysBefore': remindDaysBefore,
+    };
+  }
+
+  factory PlanItem.fromJson(Map<String, dynamic> j) {
+    return PlanItem(
+      id: j['id'],
+      title: j['title'] ?? '',
+      amount: (j['amount'] as num?)?.toDouble() ?? 0,
+      date: j['date'] ?? '',
+      occasionCode: j['occasionCode'] ?? '',
+      occasionName: j['occasionName'] ?? '',
+      note: j['note'] ?? '',
+      done: j['done'] ?? false,
+      reminderId: j['reminderId'],
+      remindDaysBefore: (j['remindDaysBefore'] as num?)?.toInt(),
     );
   }
 }

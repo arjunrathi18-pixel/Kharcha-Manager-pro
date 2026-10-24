@@ -89,6 +89,8 @@ const hiCategoryLabels = {
   'silver': 'चांदी',
   'stocks': 'शेयर',
   'emergency': 'आपातकालीन कोष',
+  'goal': 'लक्ष्य बचत',
+  'milksales': 'दूध बिक्री',
 };
 
 String catLabelFor(Category c, String lang) {
@@ -142,6 +144,8 @@ const hiStrings = {
   'PIN enabled.': 'पिन चालू हो गया।',
   'PIN disabled.': 'पिन बंद हो गया।',
   'PIN must be 4 digits.': 'पिन 4 अंकों का होना चाहिए।',
+  'Savings Goals': 'बचत लक्ष्य',
+  'View all': 'सभी देखें',
 };
 
 String tr(String key, String lang) {
