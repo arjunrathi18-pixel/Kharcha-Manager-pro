@@ -12,6 +12,31 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Verify all source files are in the right folders
+        run: |
+          missing=0
+          for f in \
+            lib/main.dart lib/models.dart lib/helpers.dart lib/translations.dart lib/grocery_data.dart \
+            lib/notification_service.dart lib/receipt_parser.dart lib/panchang.dart lib/panchang_data.dart \
+            lib/screens/auth_screen.dart lib/screens/lock_screen.dart lib/screens/home_shell.dart \
+            lib/screens/utility_screens.dart lib/screens/grocery_screens.dart lib/screens/tabs.dart \
+            lib/screens/entry_sheet.dart lib/screens/settings_and_more.dart lib/screens/recurring_screen.dart \
+            lib/screens/vendor_milk_screen.dart lib/screens/monthly_report_screen.dart \
+            lib/screens/milk_link_screen.dart lib/screens/bill_image_screen.dart \
+            lib/screens/savings_goals_screen.dart lib/screens/receipt_scan_screen.dart \
+            lib/screens/planner_screen.dart pubspec.yaml; do
+            if [ ! -f "$f" ]; then
+              echo "MISSING: $f"
+              missing=1
+            fi
+          done
+          echo "---- .dart files found in the repo ----"
+          find . -name "*.dart" -not -path "./.git/*" | sort
+          if [ "$missing" = "1" ]; then
+            echo "::error::Some files are missing or uploaded to the wrong folder - see the MISSING lines above."
+            exit 1
+          fi
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
