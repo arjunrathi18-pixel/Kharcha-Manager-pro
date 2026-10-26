@@ -73,6 +73,56 @@ jobs:
             exit 1
           fi
 
+      - name: Check that no file is cut off or empty
+        run: |
+          bad=0
+          check() {
+            f="$1"; min="$2"; shift 2
+            if [ ! -f "$f" ]; then echo "MISSING: $f"; bad=1; return; fi
+            size=$(wc -c < "$f")
+            if [ "$size" -lt "$min" ]; then
+              echo "INCOMPLETE: $f is only $size bytes (expected at least $min) - it was cut off, empty or is an old version"
+              bad=1
+            fi
+            for c in "$@"; do
+              if ! grep -q "class $c\b" "$f"; then
+                echo "INCOMPLETE: $f does not contain class $c"
+                bad=1
+              fi
+            done
+          }
+          check lib/grocery_data.dart 4895 GroceryItem GroceryCategory
+          check lib/helpers.dart 3403
+          check lib/main.dart 31315 StartupErrorApp KharchaApp
+          check lib/models.dart 16335 Category Entry Reminder RecurringExpense MilkCustomer GoalContribution SavingsGoal PlanItem
+          check lib/notification_service.dart 3847 NotificationService
+          check lib/panchang.dart 24982 PanchangDay PanchangOccurrence FestivalInfo Panchang
+          check lib/panchang_data.dart 65472
+          check lib/receipt_parser.dart 21441 ReceiptResult ParsedReceipt
+          check lib/screens/auth_screen.dart 7469 AuthScreen
+          check lib/screens/bill_image_screen.dart 12714 MilkBillData BillImageScreen
+          check lib/screens/entry_sheet.dart 9341 EntrySheet
+          check lib/screens/grocery_screens.dart 13562 GroceryScreen GroceryItemSheet QuickAmountSheet
+          check lib/screens/home_shell.dart 23712 HomeShell
+          check lib/screens/lock_screen.dart 2606 LockScreen
+          check lib/screens/milk_link_screen.dart 13293 MyMilkLinkScreen LinkedVendorDetailScreen
+          check lib/screens/monthly_report_screen.dart 7440 MonthlyReportScreen
+          check lib/screens/planner_screen.dart 33676 PlannerScreen
+          check lib/screens/receipt_scan_screen.dart 11922 ReceiptScanScreen
+          check lib/screens/recurring_screen.dart 12233 RecurringExpensesScreen RecurringExpenseSheet
+          check lib/screens/savings_goals_screen.dart 20444 SavingsGoalsScreen GoalDetailScreen
+          check lib/screens/settings_and_more.dart 19825 RemindersScreen ExportScreen SettingsScreen AboutScreen FeedbackScreen
+          check lib/screens/tabs.dart 54106 CategoryEntriesScreen EntryTile DashboardTab CalendarTab AnalyticsTab SearchTab AddTab CategoryPickerSheet AddTabPicker
+          check lib/screens/utility_screens.dart 60261 MilkScreen ElectricityScreen GasScreen RechargeScreen PresenceCalendarScreen
+          check lib/screens/vendor_milk_screen.dart 27363 VendorMilkScreen VendorCustomerDetailScreen
+          check lib/translations.dart 5105
+          echo "---- file sizes (bytes) ----"
+          wc -c lib/*.dart lib/screens/*.dart | sort -n
+          if [ "$bad" = "1" ]; then
+            echo "::error::A file is incomplete or wrong - see the INCOMPLETE lines above. Re-upload that file."
+            exit 1
+          fi
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
