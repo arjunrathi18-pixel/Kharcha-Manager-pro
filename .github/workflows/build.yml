@@ -12,10 +12,30 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Verify all source files are in the right folders
+      - name: Fix folder / file names, then verify all source files
         run: |
-          missing=0
-          for f in \
+          # Linux is case-sensitive: "lib/Screens" is NOT "lib/screens".
+          if [ -d lib/Screens ]; then
+            mkdir -p lib/screens
+            cp -rn lib/Screens/. lib/screens/
+            rm -rf lib/Screens
+            echo "Renamed folder lib/Screens -> lib/screens"
+          fi
+
+          # Known name slips (singular vs plural, typos)
+          rename_file() {
+            if [ ! -f "lib/screens/$2" ] && [ -f "lib/screens/$1" ]; then
+              mv "lib/screens/$1" "lib/screens/$2"
+              echo "Renamed $1 -> $2"
+            fi
+          }
+          rename_file grocery_screen.dart grocery_screens.dart
+          rename_file utility_screen.dart utility_screens.dart
+          rename_file savings_goal_screen.dart savings_goals_screen.dart
+          rename_file monthky_report_screen.dart monthly_report_screen.dart
+          rename_file monthly_report_screens.dart monthly_report_screen.dart
+
+          REQUIRED="\
             lib/main.dart lib/models.dart lib/helpers.dart lib/translations.dart lib/grocery_data.dart \
             lib/notification_service.dart lib/receipt_parser.dart lib/panchang.dart lib/panchang_data.dart \
             lib/screens/auth_screen.dart lib/screens/lock_screen.dart lib/screens/home_shell.dart \
@@ -24,16 +44,32 @@ jobs:
             lib/screens/vendor_milk_screen.dart lib/screens/monthly_report_screen.dart \
             lib/screens/milk_link_screen.dart lib/screens/bill_image_screen.dart \
             lib/screens/savings_goals_screen.dart lib/screens/receipt_scan_screen.dart \
-            lib/screens/planner_screen.dart pubspec.yaml; do
+            lib/screens/planner_screen.dart pubspec.yaml"
+
+          # A required file that is somewhere else (or with different letter case) gets moved into place.
+          for f in $REQUIRED; do
+            if [ ! -f "$f" ]; then
+              base=$(basename "$f")
+              found=$(find lib -type f -iname "$base" | head -n 1)
+              if [ -n "$found" ]; then
+                mkdir -p "$(dirname "$f")"
+                mv "$found" "$f"
+                echo "Moved $found -> $f"
+              fi
+            fi
+          done
+
+          missing=0
+          for f in $REQUIRED; do
             if [ ! -f "$f" ]; then
               echo "MISSING: $f"
               missing=1
             fi
           done
-          echo "---- .dart files found in the repo ----"
+          echo "---- .dart files in the repo ----"
           find . -name "*.dart" -not -path "./.git/*" | sort
           if [ "$missing" = "1" ]; then
-            echo "::error::Some files are missing or uploaded to the wrong folder - see the MISSING lines above."
+            echo "::error::Some files are really missing - see the MISSING lines above."
             exit 1
           fi
 
