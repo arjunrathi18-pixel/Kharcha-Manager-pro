@@ -600,6 +600,7 @@ class ElectricityScreen extends StatefulWidget {
   final double ratePerUnit;
   final void Function({double? lastReading, double? ratePerUnit}) onUpdateSettings;
   final void Function(Entry) onRecordPayment;
+  final VoidCallback? onOpenHistory;
 
   const ElectricityScreen({
     super.key,
@@ -607,6 +608,7 @@ class ElectricityScreen extends StatefulWidget {
     required this.ratePerUnit,
     required this.onUpdateSettings,
     required this.onRecordPayment,
+    this.onOpenHistory,
   });
 
   @override
@@ -665,7 +667,13 @@ class _ElectricityScreenState extends State<ElectricityScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Electricity Bill')),
+      appBar: AppBar(
+        title: const Text('Electricity Bill'),
+        actions: [
+          if (widget.onOpenHistory != null)
+            IconButton(icon: const Icon(Icons.history), tooltip: 'Past bills', onPressed: widget.onOpenHistory),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -766,6 +774,7 @@ class GasScreen extends StatefulWidget {
   final double cylinderKg;
   final void Function({String? lastCylinderDate, double? cylinderKg}) onUpdateSettings;
   final void Function(Entry) onRecordPayment;
+  final VoidCallback? onOpenHistory;
 
   const GasScreen({
     super.key,
@@ -773,6 +782,7 @@ class GasScreen extends StatefulWidget {
     required this.cylinderKg,
     required this.onUpdateSettings,
     required this.onRecordPayment,
+    this.onOpenHistory,
   });
 
   @override
@@ -828,7 +838,13 @@ class _GasScreenState extends State<GasScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Gas Cylinder')),
+      appBar: AppBar(
+        title: const Text('Gas Cylinder'),
+        actions: [
+          if (widget.onOpenHistory != null)
+            IconButton(icon: const Icon(Icons.history), tooltip: 'Past cylinders', onPressed: widget.onOpenHistory),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -937,12 +953,14 @@ class RechargeScreen extends StatefulWidget {
   final String? lastDate;
   final void Function(String date) onUpdateLastDate;
   final void Function(Entry) onRecordPayment;
+  final VoidCallback? onOpenHistory;
 
   const RechargeScreen({
     super.key,
     required this.lastDate,
     required this.onUpdateLastDate,
     required this.onRecordPayment,
+    this.onOpenHistory,
   });
 
   @override
@@ -1025,7 +1043,13 @@ class _RechargeScreenState extends State<RechargeScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Mobile Recharge')),
+      appBar: AppBar(
+        title: const Text('Mobile Recharge'),
+        actions: [
+          if (widget.onOpenHistory != null)
+            IconButton(icon: const Icon(Icons.history), tooltip: 'Past recharges', onPressed: widget.onOpenHistory),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -1229,6 +1253,7 @@ class PresenceCalendarScreen extends StatefulWidget {
   final void Function(double rate) onUpdateRate;
   final void Function(Entry) onRecordPayment;
   final void Function(Reminder) onAddReminder;
+  final VoidCallback? onOpenHistory;
 
   const PresenceCalendarScreen({
     super.key,
@@ -1244,6 +1269,7 @@ class PresenceCalendarScreen extends StatefulWidget {
     required this.onUpdateRate,
     required this.onRecordPayment,
     required this.onAddReminder,
+    this.onOpenHistory,
   });
 
   @override
@@ -1417,7 +1443,13 @@ class _PresenceCalendarScreenState extends State<PresenceCalendarScreen> {
     final rangeLabel = '${DateFormat('d MMM').format(firstDay)} - ${DateFormat('d MMM yyyy').format(lastDay)}';
 
     return Scaffold(
-      appBar: AppBar(title: Text(widget.title)),
+      appBar: AppBar(
+        title: Text(widget.title),
+        actions: [
+          if (widget.onOpenHistory != null)
+            IconButton(icon: const Icon(Icons.history), tooltip: 'Past payments', onPressed: widget.onOpenHistory),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
