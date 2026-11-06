@@ -1,4 +1,5 @@
 import 'panchang_data.dart';
+import 'panchang_history_data.dart';
 
 /* ============================== TYPES ============================== */
 
@@ -34,6 +35,21 @@ class PanchangOccurrence {
   final DateTime date;
   final String code;
   const PanchangOccurrence(this.date, this.code);
+}
+
+// A date expressed the Hindu way: lunar month (amanta), tithi 1..30.
+class HinduDate {
+  final int monthIdx;
+  final bool adhika;
+  final int tithi;
+  const HinduDate(this.monthIdx, this.adhika, this.tithi);
+}
+
+class _Rec {
+  final int tithi;
+  final int mcode;
+  final int tend;
+  const _Rec(this.tithi, this.mcode, this.tend);
 }
 
 class FestivalInfo {
@@ -495,5 +511,120 @@ class Panchang {
       if (c == 'festival') return o;
     }
     return list.isEmpty ? null : list.first;
+  }
+
+  /* ---------- tithi of ANY date (1940-2035) ---------- */
+
+  static bool inFullRange(DateTime d) => d.year >= kHistStartYear && d.year <= kPanchangEndYear;
+
+  static _Rec? _rec(DateTime date) {
+    final y = date.year;
+    if (y >= kPanchangStartYear && y <= kPanchangEndYear) {
+      final mi = (y - kPanchangStartYear) * 12 + date.month - 1;
+      final row = kPanchangMonths[mi];
+      final s = (date.day - 1) * 10;
+      if (s + 10 > row.length) return null;
+      return _Rec(_b36Int(row[s]), _b36Int(row[s + 2]), _b36Int(row.substring(s + 4, s + 7)));
+    }
+    if (y >= kHistStartYear && y <= kHistEndYear) {
+      final mi = (y - kHistStartYear) * 12 + date.month - 1;
+      final row = kHistMonths[mi];
+      final s = (date.day - 1) * 5;
+      if (s + 5 > row.length) return null;
+      return _Rec(_b36Int(row[s]), _b36Int(row[s + 1]), _b36Int(row.substring(s + 2, s + 5)));
+    }
+    return null;
+  }
+
+  // The Hindu date of a Gregorian date. With [minutes] (time of birth, minutes
+  // after midnight) the tithi running at that moment is used; without it, the
+  // tithi at sunrise.
+  static HinduDate? hinduDateOf(DateTime date, {int? minutes}) {
+    final rec = _rec(date);
+    if (rec == null) return null;
+    if (minutes == null) return HinduDate(rec.mcode % 12, rec.mcode >= 12, rec.tithi);
+
+    final prev = _rec(DateTime(date.year, date.month, date.day - 1));
+    final next = _rec(DateTime(date.year, date.month, date.day + 1));
+    int tithi;
+    int mcode;
+    if (minutes < rec.tend) {
+      if (prev != null && prev.tithi != rec.tithi && minutes < prev.tend - 1440) {
+        tithi = prev.tithi;
+        mcode = prev.mcode;
+      } else {
+        tithi = rec.tithi;
+        mcode = rec.mcode;
+      }
+    } else {
+      tithi = rec.tithi % 30 + 1;
+      mcode = (rec.tithi == 30 && next != null) ? next.mcode : rec.mcode;
+    }
+    return HinduDate(mcode % 12, mcode >= 12, tithi);
+  }
+
+  static bool _matchesTithi(DateTime d, int monthIdx, int tithi) {
+    final r = _rec(d);
+    if (r == null) return false;
+    if (r.tithi == tithi && r.mcode == monthIdx) return true;
+    // A tithi that begins after one sunrise and ends before the next never
+    // shows up at sunrise (kshaya) - it belongs to the day it actually occurs.
+    final n = _rec(DateTime(d.year, d.month, d.day + 1));
+    if (n == null) return false;
+    final before = tithi == 1 ? 30 : tithi - 1;
+    final after = tithi == 30 ? 1 : tithi + 1;
+    if (r.tithi == before && n.tithi == after) {
+      final m = tithi == 1 ? n.mcode : r.mcode;
+      return m == monthIdx;
+    }
+    return false;
+  }
+
+  // Next dates (from [from], within 2024-2035) on which the given amanta
+  // month + tithi falls - one per lunar year. Adhika months are skipped.
+  static List<DateTime> nextOccurrences(int monthIdx, int tithi, DateTime from, {int count = 5}) {
+    final out = <DateTime>[];
+    var d = DateTime(from.year, from.month, from.day);
+    if (d.isBefore(firstDate)) d = firstDate;
+    DateTime? lastHit;
+    while (!d.isAfter(lastDate) && out.length < count) {
+      if (_matchesTithi(d, monthIdx, tithi)) {
+        if (lastHit == null || d.difference(lastHit).inDays > 25) {
+          out.add(d);
+          lastHit = d;
+        }
+      }
+      d = DateTime(d.year, d.month, d.day + 1);
+    }
+    return out;
+  }
+
+  /* ---------- all dates of one festival (for "last year" lookups) ---------- */
+
+  static final Map<String, List<DateTime>> _codeDates = {};
+
+  static List<DateTime> occurrencesOf(String code) {
+    return _codeDates.putIfAbsent(code, () {
+      final out = <DateTime>[];
+      for (var mi = 0; mi < kPanchangEventMonths.length; mi++) {
+        final s = kPanchangEventMonths[mi];
+        if (s.isEmpty || !s.contains(code)) continue;
+        final y = kPanchangStartYear + mi ~/ 12;
+        final m = mi % 12 + 1;
+        for (final part in s.split(',')) {
+          final i = part.indexOf(':');
+          if (i < 0) continue;
+          if (part.substring(i + 1) == code) out.add(DateTime(y, m, int.parse(part.substring(0, i))));
+        }
+      }
+      return out;
+    });
+  }
+
+  // Festivals a user can pick for automatic reminders.
+  static List<String> selectableFestivalCodes(String lang) {
+    final codes = _catalog.entries.where((e) => e.value.category == 'festival').map((e) => e.key).toList();
+    codes.sort((a, b) => _catalog[a]!.en.compareTo(_catalog[b]!.en));
+    return codes;
   }
 }
