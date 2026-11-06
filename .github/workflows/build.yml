@@ -36,15 +36,19 @@ jobs:
           rename_file monthly_report_screens.dart monthly_report_screen.dart
 
           REQUIRED="\
-            lib/main.dart lib/models.dart lib/helpers.dart lib/translations.dart lib/grocery_data.dart \
-            lib/notification_service.dart lib/receipt_parser.dart lib/panchang.dart lib/panchang_data.dart \
-            lib/screens/auth_screen.dart lib/screens/lock_screen.dart lib/screens/home_shell.dart \
-            lib/screens/utility_screens.dart lib/screens/grocery_screens.dart lib/screens/tabs.dart \
-            lib/screens/entry_sheet.dart lib/screens/settings_and_more.dart lib/screens/recurring_screen.dart \
-            lib/screens/vendor_milk_screen.dart lib/screens/monthly_report_screen.dart \
-            lib/screens/milk_link_screen.dart lib/screens/bill_image_screen.dart \
-            lib/screens/savings_goals_screen.dart lib/screens/receipt_scan_screen.dart \
-            lib/screens/planner_screen.dart pubspec.yaml"
+            lib/grocery_data.dart lib/helpers.dart lib/ics_export.dart lib/main.dart lib/models.dart \
+            lib/muhurat.dart lib/notification_service.dart lib/notify_plan.dart lib/panchang.dart \
+            lib/panchang_data.dart lib/panchang_history_data.dart lib/price_history.dart \
+            lib/receipt_parser.dart lib/screens/auth_screen.dart lib/screens/bill_image_screen.dart \
+            lib/screens/entry_sheet.dart lib/screens/grocery_screens.dart lib/screens/history_screen.dart \
+            lib/screens/home_shell.dart lib/screens/lock_screen.dart lib/screens/milk_link_screen.dart \
+            lib/screens/monthly_report_screen.dart lib/screens/planner_screen.dart \
+            lib/screens/receipt_scan_screen.dart lib/screens/recurring_screen.dart \
+            lib/screens/savings_goals_screen.dart lib/screens/service_tracker_screen.dart \
+            lib/screens/settings_and_more.dart lib/screens/share_card_screen.dart lib/screens/tabs.dart \
+            lib/screens/tithi_events_screen.dart lib/screens/universal_search_view.dart \
+            lib/screens/utility_screens.dart lib/screens/vendor_milk_screen.dart lib/service_logic.dart \
+            lib/translations.dart pubspec.yaml"
 
           # A required file that is somewhere else (or with different letter case) gets moved into place.
           for f in $REQUIRED; do
@@ -93,28 +97,39 @@ jobs:
           }
           check lib/grocery_data.dart 4895 GroceryItem GroceryCategory
           check lib/helpers.dart 3403
-          check lib/main.dart 31315 StartupErrorApp KharchaApp
-          check lib/models.dart 16335 Category Entry Reminder RecurringExpense MilkCustomer GoalContribution SavingsGoal PlanItem
-          check lib/notification_service.dart 3847 NotificationService
-          check lib/panchang.dart 24982 PanchangDay PanchangOccurrence FestivalInfo Panchang
+          check lib/ics_export.dart 2476 IcsEvent
+          check lib/main.dart 34249 StartupErrorApp KharchaApp
+          check lib/models.dart 20490 Category Entry Reminder RecurringExpense MilkCustomer GoalContribution SavingsGoal PlanItem PlannerPrefs TithiEvent ServiceSettings
+          check lib/muhurat.dart 6874 City SunTimes TimeRange DayMuhurat
+          check lib/notification_service.dart 5139 ScheduledNote NotificationService
+          check lib/notify_plan.dart 4052
+          check lib/panchang.dart 29282 PanchangDay PanchangOccurrence HinduDate FestivalInfo Panchang
           check lib/panchang_data.dart 65472
+          check lib/panchang_history_data.dart 144011
+          check lib/price_history.dart 5006 PriceStats MonthTotal
           check lib/receipt_parser.dart 21441 ReceiptResult ParsedReceipt
           check lib/screens/auth_screen.dart 7469 AuthScreen
           check lib/screens/bill_image_screen.dart 12714 MilkBillData BillImageScreen
-          check lib/screens/entry_sheet.dart 9341 EntrySheet
-          check lib/screens/grocery_screens.dart 13562 GroceryScreen GroceryItemSheet QuickAmountSheet
-          check lib/screens/home_shell.dart 23712 HomeShell
+          check lib/screens/entry_sheet.dart 11322 EntrySheet
+          check lib/screens/grocery_screens.dart 16147 GroceryScreen GroceryItemSheet QuickAmountSheet
+          check lib/screens/history_screen.dart 16176 PriceChangeChip LastPurchaseCard PriceTrendChart PriceAnalyticsCard MonthTotalsCard HistoryEntryTile HistoryScreen
+          check lib/screens/home_shell.dart 27431 HomeShell
           check lib/screens/lock_screen.dart 2606 LockScreen
           check lib/screens/milk_link_screen.dart 13293 MyMilkLinkScreen LinkedVendorDetailScreen
           check lib/screens/monthly_report_screen.dart 7440 MonthlyReportScreen
-          check lib/screens/planner_screen.dart 33676 PlannerScreen
+          check lib/screens/planner_screen.dart 55412 PlannerScreen
           check lib/screens/receipt_scan_screen.dart 11922 ReceiptScanScreen
           check lib/screens/recurring_screen.dart 12233 RecurringExpensesScreen RecurringExpenseSheet
           check lib/screens/savings_goals_screen.dart 20444 SavingsGoalsScreen GoalDetailScreen
+          check lib/screens/service_tracker_screen.dart 17903 ServiceTrackerScreen
           check lib/screens/settings_and_more.dart 19825 RemindersScreen ExportScreen SettingsScreen AboutScreen FeedbackScreen
-          check lib/screens/tabs.dart 54106 CategoryEntriesScreen EntryTile DashboardTab CalendarTab AnalyticsTab SearchTab AddTab CategoryPickerSheet AddTabPicker
-          check lib/screens/utility_screens.dart 60261 MilkScreen ElectricityScreen GasScreen RechargeScreen PresenceCalendarScreen
+          check lib/screens/share_card_screen.dart 11453 ShareCardScreen PanchangDayCard PlanCard
+          check lib/screens/tabs.dart 55352 CategoryEntriesScreen EntryTile DashboardTab CalendarTab AnalyticsTab SearchTab AddTab CategoryPickerSheet AddTabPicker
+          check lib/screens/tithi_events_screen.dart 17933 TithiEventsScreen
+          check lib/screens/universal_search_view.dart 10066 UniversalSearchView
+          check lib/screens/utility_screens.dart 60984 MilkScreen ElectricityScreen GasScreen RechargeScreen PresenceCalendarScreen
           check lib/screens/vendor_milk_screen.dart 27363 VendorMilkScreen VendorCustomerDetailScreen
+          check lib/service_logic.dart 5097 ServiceInfo
           check lib/translations.dart 5105
           echo "---- file sizes (bytes) ----"
           wc -c lib/*.dart lib/screens/*.dart | sort -n
