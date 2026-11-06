@@ -15,6 +15,11 @@ import 'milk_link_screen.dart';
 import 'receipt_scan_screen.dart';
 import 'savings_goals_screen.dart';
 import 'planner_screen.dart';
+import 'history_screen.dart';
+import 'tithi_events_screen.dart';
+import 'service_tracker_screen.dart';
+import '../price_history.dart';
+import '../service_logic.dart';
 import '../receipt_parser.dart';
 
 class HomeShell extends StatefulWidget {
@@ -71,6 +76,14 @@ class HomeShell extends StatefulWidget {
   final void Function(PlanItem) onAddPlanItem;
   final void Function(PlanItem) onUpdatePlanItem;
   final void Function(String) onDeletePlanItem;
+  final PlannerPrefs plannerPrefs;
+  final void Function(PlannerPrefs) onUpdatePlannerPrefs;
+  final List<TithiEvent> tithiEvents;
+  final void Function(TithiEvent) onAddTithiEvent;
+  final void Function(TithiEvent) onUpdateTithiEvent;
+  final void Function(String) onDeleteTithiEvent;
+  final Map<String, ServiceSettings> serviceSettings;
+  final void Function(String vehicleType, ServiceSettings s) onUpdateServiceSettings;
   final Future<String> Function() onEnsureMilkLinkCode;
   final Future<Map<String, String>?> Function(String) onResolveLinkCode;
   final void Function({double? lastReading, double? ratePerUnit}) onUpdateElectricitySettings;
@@ -140,6 +153,14 @@ class HomeShell extends StatefulWidget {
     required this.onAddPlanItem,
     required this.onUpdatePlanItem,
     required this.onDeletePlanItem,
+    required this.plannerPrefs,
+    required this.onUpdatePlannerPrefs,
+    required this.tithiEvents,
+    required this.onAddTithiEvent,
+    required this.onUpdateTithiEvent,
+    required this.onDeleteTithiEvent,
+    required this.serviceSettings,
+    required this.onUpdateServiceSettings,
     required this.onEnsureMilkLinkCode,
     required this.onResolveLinkCode,
     required this.onUpdateElectricitySettings,
@@ -217,6 +238,7 @@ class _HomeShellState extends State<HomeShell> {
               ratePerUnit: widget.electricityRatePerUnit,
               onUpdateSettings: widget.onUpdateElectricitySettings,
               onRecordPayment: widget.onAddEntry,
+              onOpenHistory: () => openHistory(section: 'home', category: 'electricity', title: 'Electricity bills'),
             );
           },
         ),
@@ -234,6 +256,7 @@ class _HomeShellState extends State<HomeShell> {
               cylinderKg: widget.gasCylinderKg,
               onUpdateSettings: widget.onUpdateGasSettings,
               onRecordPayment: widget.onAddEntry,
+              onOpenHistory: () => openHistory(section: 'home', category: 'gas', title: 'Gas cylinders'),
             );
           },
         ),
@@ -259,6 +282,7 @@ class _HomeShellState extends State<HomeShell> {
               onUpdateRate: widget.onUpdateWaterRate,
               onRecordPayment: widget.onAddEntry,
               onAddReminder: widget.onAddReminder,
+              onOpenHistory: () => openHistory(section: 'home', category: 'water', title: 'Water payments'),
             );
           },
         ),
@@ -275,6 +299,7 @@ class _HomeShellState extends State<HomeShell> {
               lastDate: widget.rechargeLastDate,
               onUpdateLastDate: widget.onUpdateRechargeLastDate,
               onRecordPayment: widget.onAddEntry,
+              onOpenHistory: () => openHistory(section: 'home', category: 'recharge', title: 'Recharges'),
             );
           },
         ),
@@ -286,7 +311,7 @@ class _HomeShellState extends State<HomeShell> {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => GroceryScreen(onSave: widget.onAddEntry),
+          builder: (_) => GroceryScreen(onSave: widget.onAddEntry, history: widget.entries),
         ),
       );
       return;
@@ -304,6 +329,7 @@ class _HomeShellState extends State<HomeShell> {
           date: date ?? todayISO(),
           existing: existing,
           prefill: prefill,
+          history: widget.entries,
           lang: widget.lang,
           onSave: (e) {
             Entry finalEntry = e;
@@ -379,9 +405,70 @@ class _HomeShellState extends State<HomeShell> {
           onAddReminder: widget.onAddReminder,
           onDeleteReminder: widget.onDeleteReminder,
           onRecordExpense: recordPlanExpense,
+          entries: widget.entries,
+          prefs: widget.plannerPrefs,
+          onUpdatePrefs: widget.onUpdatePlannerPrefs,
+          tithiEvents: widget.tithiEvents,
+          onOpenTithiEvents: openTithiEvents,
         ),
       ),
     );
+  }
+
+  void openTithiEvents() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TithiEventsScreen(
+          events: widget.tithiEvents,
+          lang: widget.lang,
+          onAdd: widget.onAddTithiEvent,
+          onUpdate: widget.onUpdateTithiEvent,
+          onDelete: widget.onDeleteTithiEvent,
+        ),
+      ),
+    );
+  }
+
+  // Past purchases of one category (all months and years) with price analytics.
+  void openHistory({required String section, required String category, String? vehicleType, required String title}) {
+    final list = historyFor(widget.entries, section: section, category: category, vehicleType: vehicleType);
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => HistoryScreen(title: title, entries: list)),
+    );
+  }
+
+  void openServiceTracker() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ServiceTrackerScreen(
+          entries: widget.entries,
+          settings: widget.serviceSettings,
+          onUpdateSettings: widget.onUpdateServiceSettings,
+          onRecordService: recordService,
+        ),
+      ),
+    );
+  }
+
+  // Opens the normal entry form for a service, with the odometer pre-filled.
+  void recordService(String vehicleType) {
+    final cat = findCat('vehicle', vehicleType, 'service');
+    if (cat == null) return;
+    final info = computeServiceInfo(widget.entries, vehicleType, widget.serviceSettings[vehicleType] ?? ServiceSettings());
+    final prefill = Entry(
+      id: '',
+      section: 'vehicle',
+      category: 'service',
+      vehicleType: vehicleType,
+      date: todayISO(),
+      amount: 0,
+      odometer: info.currentKm,
+      createdAt: 0,
+    );
+    openEntrySheet('vehicle', cat, vehicleType, date: todayISO(), prefill: prefill);
   }
 
   void markPlanDone(PlanItem it) {
@@ -491,6 +578,8 @@ class _HomeShellState extends State<HomeShell> {
         onOpenGoals: openGoals,
         planItems: widget.planItems,
         onOpenPlanner: openPlanner,
+        serviceSettings: widget.serviceSettings,
+        onOpenService: openServiceTracker,
         milkLitresPerDay: widget.milkLitresPerDay,
         milkPricePerLitre: widget.milkPricePerLitre,
         onEditEntry: openEditEntry,
@@ -533,6 +622,11 @@ class _HomeShellState extends State<HomeShell> {
           ),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.search),
+            tooltip: 'Search all expenses',
+            onPressed: () => setState(() => tabIndex = tabs.length - 1),
+          ),
           if (widget.pin != null) IconButton(icon: const Icon(Icons.lock), onPressed: widget.onLock),
           IconButton(
             icon: const Icon(Icons.menu),
@@ -585,6 +679,22 @@ class _HomeShellState extends State<HomeShell> {
               onTap: () {
                 Navigator.pop(context);
                 openPlanner();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.build_circle_outlined),
+              title: const Text('Service Reminders'),
+              onTap: () {
+                Navigator.pop(context);
+                openServiceTracker();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.cake_outlined),
+              title: const Text('Hindu Birthdays & Shraddh'),
+              onTap: () {
+                Navigator.pop(context);
+                openTithiEvents();
               },
             ),
             ListTile(
