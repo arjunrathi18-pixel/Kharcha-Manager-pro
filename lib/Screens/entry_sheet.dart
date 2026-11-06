@@ -3,6 +3,8 @@ import 'package:intl/intl.dart';
 import '../models.dart';
 import '../helpers.dart';
 import '../translations.dart';
+import '../price_history.dart';
+import 'history_screen.dart';
 
 class EntrySheet extends StatefulWidget {
   final String section;
@@ -12,6 +14,7 @@ class EntrySheet extends StatefulWidget {
   final Entry? existing;
   final String lang;
   final Entry? prefill;
+  final List<Entry> history;
   final void Function(Entry) onSave;
 
   const EntrySheet({
@@ -22,6 +25,7 @@ class EntrySheet extends StatefulWidget {
     required this.date,
     this.existing,
     this.prefill,
+    this.history = const <Entry>[],
     required this.lang,
     required this.onSave,
   });
@@ -62,6 +66,7 @@ class _EntrySheetState extends State<EntrySheet> {
       amountCtrl.text = pf.amount <= 0 ? '' : (pf.amount == pf.amount.roundToDouble() ? pf.amount.toStringAsFixed(0) : pf.amount.toStringAsFixed(2));
       notesCtrl.text = pf.notes;
       customCtrl.text = pf.customLabel;
+      if (pf.odometer != null) odoCtrl.text = pf.odometer!.round().toString();
       lastEdited = 'amount';
       if (widget.category.qty && pf.quantity != null && pf.quantity! > 0) {
         qtyCtrl.text = pf.quantity.toString();
@@ -90,6 +95,23 @@ class _EntrySheetState extends State<EntrySheet> {
 
   double get computedAmount {
     return double.tryParse(amountCtrl.text) ?? 0;
+  }
+
+  // Service entries get an optional odometer field so the next-service reminder
+  // knows at which kilometre the service was done.
+  bool get isServiceCat => widget.section == 'vehicle' && widget.category.key == 'service';
+
+  List<Entry> get pastEntries {
+    if (widget.history.isEmpty) return const <Entry>[];
+    if (widget.category.custom && customCtrl.text.trim().isEmpty) return const <Entry>[];
+    return historyFor(
+      widget.history,
+      section: widget.section,
+      category: widget.category.key,
+      vehicleType: widget.vehicleType,
+      customLabel: widget.category.custom ? customCtrl.text : '',
+      excludeId: widget.existing?.id,
+    );
   }
 
   Future<void> save() async {
@@ -122,7 +144,7 @@ class _EntrySheetState extends State<EntrySheet> {
       quantity: widget.category.qty ? double.tryParse(qtyCtrl.text) : null,
       rate: widget.category.qty ? double.tryParse(rateCtrl.text) : null,
       unitLabel: widget.category.unitLabel,
-      odometer: widget.category.trackOdo ? double.tryParse(odoCtrl.text) : null,
+      odometer: (widget.category.trackOdo || isServiceCat) ? double.tryParse(odoCtrl.text) : null,
       notes: notesCtrl.text.trim(),
       customLabel: widget.category.custom ? customCtrl.text.trim() : '',
       createdAt: widget.existing?.createdAt ?? DateTime.now().millisecondsSinceEpoch,
@@ -165,6 +187,7 @@ class _EntrySheetState extends State<EntrySheet> {
                 TextField(
                   controller: customCtrl,
                   decoration: InputDecoration(labelText: tr('Category name', widget.lang)),
+                  onChanged: (_) => setState(() {}),
                 ),
                 const Padding(
                   padding: EdgeInsets.only(top: 4, left: 4),
@@ -175,6 +198,20 @@ class _EntrySheetState extends State<EntrySheet> {
                 ),
               ],
               const SizedBox(height: 10),
+              if (pastEntries.isNotEmpty)
+                LastPurchaseCard(
+                  title: isServiceCat ? 'Last service' : 'Last purchase',
+                  history: pastEntries,
+                  onOpenHistory: () {
+                    final label = widget.category.custom && customCtrl.text.trim().isNotEmpty
+                        ? customCtrl.text.trim()
+                        : widget.category.label;
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => HistoryScreen(title: '$label - history', entries: pastEntries)),
+                    );
+                  },
+                ),
               TextField(
                 readOnly: true,
                 controller: TextEditingController(text: date),
@@ -245,6 +282,19 @@ class _EntrySheetState extends State<EntrySheet> {
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(
                       labelText: 'Odometer reading (km) at this fill-up',
+                      prefixIcon: Icon(Icons.speed),
+                    ),
+                  ),
+                ),
+              if (isServiceCat)
+                Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: TextField(
+                    controller: odoCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Odometer at this service (km) - optional',
+                      helperText: 'Used to remind you when the next service is due',
                       prefixIcon: Icon(Icons.speed),
                     ),
                   ),
