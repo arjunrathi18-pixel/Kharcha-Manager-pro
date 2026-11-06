@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'models.dart';
 import 'helpers.dart';
 import 'notification_service.dart';
+import 'notify_plan.dart';
 import 'screens/auth_screen.dart';
 import 'screens/lock_screen.dart';
 import 'screens/home_shell.dart';
@@ -91,6 +92,9 @@ class _KharchaAppState extends State<KharchaApp> {
   List<MilkCustomer> milkCustomers = [];
   List<SavingsGoal> savingsGoals = [];
   List<PlanItem> planItems = [];
+  PlannerPrefs plannerPrefs = PlannerPrefs();
+  List<TithiEvent> tithiEvents = [];
+  Map<String, ServiceSettings> serviceSettings = {'bike': ServiceSettings(), 'car': ServiceSettings()};
   double? electricityLastReading;
   double electricityRatePerUnit = 8.0;
   String? gasLastCylinderDate;
@@ -145,6 +149,9 @@ class _KharchaAppState extends State<KharchaApp> {
         milkCustomers = [];
         savingsGoals = [];
         planItems = [];
+        plannerPrefs = PlannerPrefs();
+        tithiEvents = [];
+        serviceSettings = {'bike': ServiceSettings(), 'car': ServiceSettings()};
         dark = true;
         pin = null;
         budgets = {'home': 0, 'personal': 0, 'vehicle': 0};
@@ -196,6 +203,9 @@ class _KharchaAppState extends State<KharchaApp> {
             'milkCustomers': [],
             'savingsGoals': [],
             'planItems': [],
+            'plannerPrefs': PlannerPrefs().toJson(),
+            'tithiEvents': [],
+            'serviceSettings': {'bike': ServiceSettings().toJson(), 'car': ServiceSettings().toJson()},
             'settings': {'dark': true, 'pin': null, 'budgets': {'home': 0, 'personal': 0, 'vehicle': 0}, 'milkMode': 'customer'},
           });
         } catch (e) {
@@ -262,6 +272,17 @@ class _KharchaAppState extends State<KharchaApp> {
       final parsedMilkCustomers = milkCustomersRaw.map((c) => MilkCustomer.fromJson(Map<String, dynamic>.from(c))).toList();
       final parsedGoals = goalsRaw.map((g) => SavingsGoal.fromJson(Map<String, dynamic>.from(g))).toList();
       final parsedPlans = planRaw.map((p) => PlanItem.fromJson(Map<String, dynamic>.from(p))).toList();
+      final prefsRaw = data['plannerPrefs'];
+      final parsedPrefs = prefsRaw is Map ? PlannerPrefs.fromJson(Map<String, dynamic>.from(prefsRaw)) : PlannerPrefs();
+      final tithiRaw = (data['tithiEvents'] as List? ?? []);
+      final parsedTithi = tithiRaw.map((t) => TithiEvent.fromJson(Map<String, dynamic>.from(t))).toList();
+      final serviceRaw = data['serviceSettings'];
+      final parsedService = <String, ServiceSettings>{'bike': ServiceSettings(), 'car': ServiceSettings()};
+      if (serviceRaw is Map) {
+        serviceRaw.forEach((k, v) {
+          if (v is Map) parsedService[k.toString()] = ServiceSettings.fromJson(Map<String, dynamic>.from(v));
+        });
+      }
 
       setState(() {
         entries = entriesRaw.map((e) => Entry.fromJson(Map<String, dynamic>.from(e))).toList();
@@ -276,6 +297,9 @@ class _KharchaAppState extends State<KharchaApp> {
         milkCustomers = parsedMilkCustomers;
         savingsGoals = parsedGoals;
         planItems = parsedPlans;
+        plannerPrefs = parsedPrefs;
+        tithiEvents = parsedTithi;
+        serviceSettings = parsedService;
         electricityLastReading = (electricityRaw['lastReading'] as num?)?.toDouble();
         electricityRatePerUnit = (electricityRaw['ratePerUnit'] as num?)?.toDouble() ?? 8.0;
         gasLastCylinderDate = gasRaw['lastCylinderDate']?.toString();
@@ -300,7 +324,7 @@ class _KharchaAppState extends State<KharchaApp> {
         docLoadTimedOut = false;
       });
       _docLoadTimeoutTimer?.cancel();
-      NotificationService.rescheduleAll(parsedReminders);
+      _rescheduleNotifications(parsedReminders);
       _processRecurringExpenses(parsedRecurring);
     }, onError: (Object e) {
       if (mounted) setState(() => docLoadError = e.toString());
@@ -340,6 +364,32 @@ class _KharchaAppState extends State<KharchaApp> {
 
   Future<void> _pushRecurring() async {
     await _docRef?.update({'recurringExpenses': recurringExpenses.map((r) => r.toJson()).toList()});
+  }
+
+  // Reminders created by hand + automatic ones (festival nudges, Hindu
+  // birthdays / shraddh, vehicle service). Rebuilt from the latest data each time.
+  void _rescheduleNotifications(List<Reminder> rem) {
+    NotificationService.rescheduleAll(
+      rem,
+      extras: buildScheduledNotes(
+        prefs: plannerPrefs,
+        events: tithiEvents,
+        service: serviceSettings,
+        entries: entries,
+      ),
+    );
+  }
+
+  Future<void> _pushPlannerPrefs() async {
+    await _docRef?.update({'plannerPrefs': plannerPrefs.toJson()});
+  }
+
+  Future<void> _pushTithiEvents() async {
+    await _docRef?.update({'tithiEvents': tithiEvents.map((e) => e.toJson()).toList()});
+  }
+
+  Future<void> _pushServiceSettings() async {
+    await _docRef?.update({'serviceSettings': serviceSettings.map((k, v) => MapEntry(k, v.toJson()))});
   }
 
   Future<void> _pushPlans() async {
@@ -627,6 +677,34 @@ class _KharchaAppState extends State<KharchaApp> {
     }
   }
 
+  void updatePlannerPrefs(PlannerPrefs p) {
+    setState(() => plannerPrefs = p);
+    _pushPlannerPrefs();
+  }
+
+  void addTithiEvent(TithiEvent e) {
+    setState(() => tithiEvents.add(e));
+    _pushTithiEvents();
+  }
+
+  void updateTithiEvent(TithiEvent e) {
+    setState(() {
+      final idx = tithiEvents.indexWhere((x) => x.id == e.id);
+      if (idx != -1) tithiEvents[idx] = e;
+    });
+    _pushTithiEvents();
+  }
+
+  void deleteTithiEvent(String id) {
+    setState(() => tithiEvents.removeWhere((e) => e.id == id));
+    _pushTithiEvents();
+  }
+
+  void updateServiceSettings(String vehicleType, ServiceSettings s) {
+    setState(() => serviceSettings[vehicleType] = s);
+    _pushServiceSettings();
+  }
+
   void addPlanItem(PlanItem p) {
     setState(() => planItems.add(p));
     _pushPlans();
@@ -749,7 +827,7 @@ class _KharchaAppState extends State<KharchaApp> {
     });
     _pushEntries();
     _pushReminders();
-    NotificationService.rescheduleAll(r);
+    _rescheduleNotifications(r);
   }
 
   Future<void> signOut() async {
@@ -947,6 +1025,14 @@ class _KharchaAppState extends State<KharchaApp> {
             onAddPlanItem: addPlanItem,
             onUpdatePlanItem: updatePlanItem,
             onDeletePlanItem: deletePlanItem,
+            plannerPrefs: plannerPrefs,
+            onUpdatePlannerPrefs: updatePlannerPrefs,
+            tithiEvents: tithiEvents,
+            onAddTithiEvent: addTithiEvent,
+            onUpdateTithiEvent: updateTithiEvent,
+            onDeleteTithiEvent: deleteTithiEvent,
+            serviceSettings: serviceSettings,
+            onUpdateServiceSettings: updateServiceSettings,
             onEnsureMilkLinkCode: ensureMilkLinkCode,
             onResolveLinkCode: resolveLinkCode,
             onUpdateElectricitySettings: updateElectricitySettings,
