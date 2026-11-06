@@ -3,6 +3,11 @@ import 'package:intl/intl.dart';
 import '../models.dart';
 import '../helpers.dart';
 import '../panchang.dart';
+import '../muhurat.dart';
+import '../ics_export.dart';
+import '../notify_plan.dart';
+import '../price_history.dart';
+import 'share_card_screen.dart';
 
 String _iso(DateTime d) => DateFormat('yyyy-MM-dd').format(d);
 bool _same(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
@@ -28,6 +33,11 @@ class PlannerScreen extends StatefulWidget {
   final void Function(Reminder) onAddReminder;
   final void Function(String) onDeleteReminder;
   final void Function(PlanItem) onRecordExpense;
+  final List<Entry> entries;
+  final PlannerPrefs prefs;
+  final void Function(PlannerPrefs) onUpdatePrefs;
+  final List<TithiEvent> tithiEvents;
+  final VoidCallback onOpenTithiEvents;
 
   const PlannerScreen({
     super.key,
@@ -40,6 +50,11 @@ class PlannerScreen extends StatefulWidget {
     required this.onAddReminder,
     required this.onDeleteReminder,
     required this.onRecordExpense,
+    required this.entries,
+    required this.prefs,
+    required this.onUpdatePrefs,
+    required this.tithiEvents,
+    required this.onOpenTithiEvents,
   });
 
   @override
@@ -53,6 +68,43 @@ class _PlannerScreenState extends State<PlannerScreen> with SingleTickerProvider
   bool purnimanta = true;
   String festFilter = 'major';
   String noteFilter = 'upcoming';
+  String calMode = 'tithi'; // tithi | spend
+
+  String _tithiSig = '';
+  Map<String, List<TithiEvent>> _tithiMap = {};
+
+  City get city => cityByKey(widget.prefs.cityKey);
+
+  // personal tithi dates (birthdays, shraddh...) laid out on the calendar
+  Map<String, List<TithiEvent>> _tithiDates() {
+    final sig = widget.tithiEvents.map((e) => '${e.id}:${e.monthIdx}:${e.tithi}').join('|');
+    if (sig != _tithiSig) {
+      _tithiSig = sig;
+      final m = <String, List<TithiEvent>>{};
+      for (final e in widget.tithiEvents) {
+        for (final d in Panchang.nextOccurrences(e.monthIdx, e.tithi, Panchang.firstDate, count: 14)) {
+          m.putIfAbsent(_iso(d), () => <TithiEvent>[]).add(e);
+        }
+      }
+      _tithiMap = m;
+    }
+    return _tithiMap;
+  }
+
+  static const List<String> _expenseSections = ['home', 'personal', 'vehicle'];
+
+  // expense total per day of the visible month (for the spending heatmap)
+  Map<int, double> _spendByDay() {
+    final prefix = DateFormat('yyyy-MM').format(cursor);
+    final out = <int, double>{};
+    for (final e in widget.entries) {
+      if (!_expenseSections.contains(e.section) || !e.date.startsWith(prefix)) continue;
+      final day = int.tryParse(e.date.substring(8, 10));
+      if (day == null) continue;
+      out[day] = (out[day] ?? 0) + e.amount;
+    }
+    return out;
+  }
 
   String get lang => widget.lang;
   String t(String en, String hi) => lang == 'hi' ? hi : en;
@@ -292,7 +344,7 @@ class _PlannerScreenState extends State<PlannerScreen> with SingleTickerProvider
           title: const Text('About this calendar'),
           content: const SingleChildScrollView(
             child: Text(
-              'Tithi, nakshatra and Hindu months are calculated astronomically (Lahiri ayanamsa) for the Ujjain meridian, using the tithi at sunrise, and cover 2024 to 2035.\n\n'
+              'Tithi, nakshatra and Hindu months are calculated astronomically (Lahiri ayanamsa) for the Ujjain meridian, using the tithi at sunrise, and cover 2024 to 2035. Sunrise, sunset, Rahu Kaal, Yamaganda, Gulika, Abhijit and Brahma Muhurat are worked out for the city you choose.\n\n'
               'Festival dates follow standard Smarta panchang rules. Some festivals (for example Janmashtami and Ekadashi) can be observed a day later by Vaishnava traditions; the app shows the Vaishnava Janmashtami separately when it differs.\n\n'
               'Islamic dates are approximate and depend on moon sighting.\n\n'
               'For exact muhurat or regional customs, please confirm with your local panchang or pandit.',
@@ -302,6 +354,264 @@ class _PlannerScreenState extends State<PlannerScreen> with SingleTickerProvider
           actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
         );
       },
+    );
+  }
+
+  /* ============================== CITY / REMINDER SETTINGS / EXPORT ============================== */
+
+  Future<void> _pickCity() async {
+    final picked = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        var filter = '';
+        return StatefulBuilder(
+          builder: (dialogContext, setS) {
+            final list = kCities.where((c) => c.name.toLowerCase().contains(filter.toLowerCase())).toList();
+            return AlertDialog(
+              title: const Text('Choose your city'),
+              content: SizedBox(
+                width: double.maxFinite,
+                height: 380,
+                child: Column(
+                  children: [
+                    TextField(
+                      decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Search city'),
+                      onChanged: (v) => setS(() => filter = v),
+                    ),
+                    const SizedBox(height: 6),
+                    Expanded(
+                      child: ListView(
+                        children: list.map((c) {
+                          final sel = c.key == widget.prefs.cityKey;
+                          return ListTile(
+                            dense: true,
+                            leading: Icon(sel ? Icons.radio_button_checked : Icons.radio_button_unchecked, color: sel ? goldColor : Colors.grey, size: 20),
+                            title: Text(c.name),
+                            onTap: () => Navigator.pop(dialogContext, c.key),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel'))],
+            );
+          },
+        );
+      },
+    );
+    if (picked == null) return;
+    widget.prefs.cityKey = picked;
+    widget.onUpdatePrefs(widget.prefs);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _nudgeSettings() async {
+    final prefs = widget.prefs;
+    var on = prefs.nudgesOn;
+    var lead = prefs.nudgeLeadDays;
+    final chosen = Set<String>.from(prefs.nudgeCodes);
+    final codes = Panchang.selectableFestivalCodes(lang);
+    final leadOptions = [7, 15, 30, 45];
+    if (!leadOptions.contains(lead)) leadOptions.add(lead);
+    leadOptions.sort();
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setS) {
+            return AlertDialog(
+              title: const Text('Festival reminders'),
+              content: SizedBox(
+                width: double.maxFinite,
+                height: 440,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: on,
+                      onChanged: (v) => setS(() => on = v),
+                      title: const Text('Remind me to plan expenses', style: TextStyle(fontSize: 13.5)),
+                      subtitle: const Text('e.g. "Diwali in 15 days" at 9 AM', style: TextStyle(fontSize: 11.5)),
+                    ),
+                    DropdownButtonFormField<int>(
+                      value: lead,
+                      decoration: const InputDecoration(labelText: 'Remind me this many days before'),
+                      items: leadOptions.map((d) => DropdownMenuItem<int>(value: d, child: Text('$d days before'))).toList(),
+                      onChanged: (v) => setS(() => lead = v ?? 15),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        const Expanded(child: Text('Which festivals', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
+                        TextButton(
+                          onPressed: () => setS(() {
+                            chosen
+                              ..clear()
+                              ..addAll(kDefaultNudgeCodes);
+                          }),
+                          child: const Text('Main ones', style: TextStyle(fontSize: 12)),
+                        ),
+                        TextButton(
+                          onPressed: () => setS(() => chosen.clear()),
+                          child: const Text('None', style: TextStyle(fontSize: 12)),
+                        ),
+                      ],
+                    ),
+                    Expanded(
+                      child: ListView(
+                        children: codes.map((c) {
+                          final f = Panchang.info(c);
+                          return CheckboxListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            controlAffinity: ListTileControlAffinity.leading,
+                            value: chosen.contains(c),
+                            onChanged: (v) => setS(() {
+                              if (v == true) {
+                                chosen.add(c);
+                              } else {
+                                chosen.remove(c);
+                              }
+                            }),
+                            title: Text(f?.en ?? c, style: const TextStyle(fontSize: 13)),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+                TextButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save')),
+              ],
+            );
+          },
+        );
+      },
+    );
+    if (ok != true) return;
+    prefs.nudgesOn = on;
+    prefs.nudgeLeadDays = lead;
+    prefs.nudgeCodes = chosen.toList();
+    widget.onUpdatePrefs(prefs);
+    if (mounted) {
+      setState(() {});
+      _snack(on ? 'Festival reminders saved' : 'Festival reminders are off');
+    }
+  }
+
+  Future<void> _exportCalendar() async {
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return SimpleDialog(
+          title: const Text('Export to Google Calendar'),
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(24, 0, 24, 8),
+              child: Text(
+                'Creates a calendar file. Open it from the share sheet (Google Calendar) or tap it in WhatsApp / Files to add every event.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ),
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(dialogContext, 'festivals'),
+              child: const Text('Festivals & holidays (next 12 months)'),
+            ),
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(dialogContext, 'all'),
+              child: const Text('Festivals, holidays & vrats (Ekadashi, Pradosh...)'),
+            ),
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(dialogContext, 'mine'),
+              child: const Text('My plans & Hindu birthdays / shraddh'),
+            ),
+          ],
+        );
+      },
+    );
+    if (choice == null) return;
+
+    final today = DateTime.now();
+    final events = <IcsEvent>[];
+
+    if (choice == 'festivals' || choice == 'all') {
+      final list = Panchang.upcoming(today, days: 365, majorOnly: choice == 'festivals');
+      for (final o in list) {
+        final p = Panchang.day(o.date);
+        final f = Panchang.info(o.code);
+        final hindu = p == null ? '' : Panchang.hinduDateLine(p, purnimanta, 'en');
+        events.add(IcsEvent(
+          uid: 'fest-${o.code}-${DateFormat('yyyyMMdd').format(o.date)}',
+          date: o.date,
+          title: Panchang.eventName(o.code, p, 'en'),
+          description: [if (hindu.isNotEmpty) hindu, if (f != null && f.desc.isNotEmpty) f.desc].join('. '),
+        ));
+      }
+    } else {
+      for (final it in widget.items) {
+        if (it.done) continue;
+        final d = DateTime.tryParse(it.date);
+        if (d == null) continue;
+        events.add(IcsEvent(
+          uid: 'plan-${it.id}',
+          date: d,
+          title: '${it.occasionName.isEmpty ? '' : '${it.occasionName}: '}${it.title}${it.amount > 0 ? ' (${fmtRs(it.amount)})' : ''}',
+          description: it.note,
+          alarmDaysBefore: it.remindDaysBefore,
+        ));
+      }
+      for (final e in widget.tithiEvents) {
+        final dates = Panchang.nextOccurrences(e.monthIdx, e.tithi, today, count: 5);
+        for (final d in dates) {
+          events.add(IcsEvent(
+            uid: 'tithi-${e.id}-${DateFormat('yyyyMMdd').format(d)}',
+            date: d,
+            title: '${tithiKindLabel(e.kind)}: ${e.name}',
+            description: e.note,
+            alarmDaysBefore: e.remindDaysBefore,
+          ));
+        }
+      }
+    }
+
+    if (events.isEmpty) {
+      _snack('Nothing to export yet.');
+      return;
+    }
+    try {
+      await shareIcs(
+        fileName: choice == 'mine' ? 'kharcha_my_dates' : 'kharcha_festivals',
+        content: buildIcs(events, calendarName: choice == 'mine' ? 'My plans & tithi dates' : 'Hindu festivals & holidays'),
+        text: '${events.length} events - open with Google Calendar to add them.',
+      );
+    } catch (e) {
+      _snack('Could not create the calendar file: $e');
+    }
+  }
+
+  void _sharePlan(DateTime date, String code, String name, List<PlanItem> its) {
+    final p = Panchang.day(date);
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ShareCardScreen(
+          title: 'Share plan',
+          card: PlanCard(
+            occasion: name,
+            date: date,
+            hinduLine: p == null ? '' : Panchang.hinduDateLine(p, purnimanta, lang),
+            items: its,
+          ),
+          caption: '$name - expense plan',
+          fileName: 'plan_${DateFormat('yyyyMMdd').format(date)}',
+        ),
+      ),
     );
   }
 
@@ -389,7 +699,13 @@ class _PlannerScreenState extends State<PlannerScreen> with SingleTickerProvider
     return '$names  •  ${t('Vikram Samvat', 'विक्रम संवत')} ${Panchang.vikramSamvat(b)}';
   }
 
-  Widget _cell(int day) {
+  String _compact(double v) {
+    if (v >= 100000) return '${(v / 100000).toStringAsFixed(v >= 1000000 ? 0 : 1)}L';
+    if (v >= 1000) return '${(v / 1000).toStringAsFixed(v >= 10000 ? 0 : 1)}k';
+    return v.toStringAsFixed(0);
+  }
+
+  Widget _cell(int day, Map<int, double> spend, double maxSpend, Map<String, List<TithiEvent>> tmap) {
     final date = DateTime(cursor.year, cursor.month, day);
     final p = Panchang.day(date);
     final sel = _same(date, selected);
@@ -407,16 +723,31 @@ class _PlannerScreenState extends State<PlannerScreen> with SingleTickerProvider
     }
     final iso = _iso(date);
     final planned = widget.items.any((i) => i.date == iso && !i.done);
+    final personal = (tmap[iso] ?? const <TithiEvent>[]).isNotEmpty;
+    final spent = spend[day] ?? 0;
+    final spendMode = calMode == 'spend';
 
     Color? bg;
     if (sel) {
       bg = goldColor;
+    } else if (spendMode) {
+      if (spent > 0) {
+        final ratio = maxSpend <= 0 ? 0.0 : spent / maxSpend;
+        bg = expenseColor.withOpacity(0.10 + 0.55 * ratio);
+      }
     } else if (p != null && p.tithi == 15) {
       bg = goldColor.withOpacity(0.2);
     } else if (p != null && p.tithi == 30) {
       bg = Colors.grey.withOpacity(0.25);
     }
     final fg = sel ? Colors.black87 : null;
+
+    String sub = '';
+    if (spendMode) {
+      sub = spent > 0 ? _compact(spent) : '';
+    } else if (p != null) {
+      sub = Panchang.tithiShort(p.tithi, lang);
+    }
 
     return InkWell(
       borderRadius: BorderRadius.circular(10),
@@ -432,17 +763,19 @@ class _PlannerScreenState extends State<PlannerScreen> with SingleTickerProvider
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text('$day', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: fg)),
-            if (p != null)
-              SizedBox(
-                width: double.infinity,
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    Panchang.tithiShort(p.tithi, lang),
-                    style: TextStyle(fontSize: 8.5, color: sel ? Colors.black87 : Colors.grey),
-                  ),
-                ),
-              ),
+            SizedBox(
+              width: double.infinity,
+              height: 12,
+              child: sub.isEmpty
+                  ? null
+                  : FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        sub,
+                        style: TextStyle(fontSize: 8.5, color: sel ? Colors.black87 : (spendMode ? null : Colors.grey)),
+                      ),
+                    ),
+            ),
             SizedBox(
               height: 10,
               child: Row(
@@ -450,6 +783,7 @@ class _PlannerScreenState extends State<PlannerScreen> with SingleTickerProvider
                 children: [
                   if (major) _dot(expenseColor),
                   if (vrat) _dot(savingsColor),
+                  if (personal) _dot(Colors.pinkAccent),
                   if (planned) _dot(incomeColor),
                 ],
               ),
@@ -484,6 +818,77 @@ class _PlannerScreenState extends State<PlannerScreen> with SingleTickerProvider
     );
   }
 
+  List<Widget> _muhuratRows(DateTime date) {
+    final m = muhuratFor(date, city);
+    if (m == null) return const <Widget>[];
+    return [
+      const Divider(height: 22),
+      Row(
+        children: [
+          const Icon(Icons.wb_sunny_outlined, size: 16, color: goldColor),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text('${t('Timings for', 'समय')} ${city.name}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5)),
+          ),
+        ],
+      ),
+      const SizedBox(height: 4),
+      _kv(t('Sunrise', 'सूर्योदय'), clockText(m.sunrise)),
+      _kv(t('Sunset', 'सूर्यास्त'), clockText(m.sunset)),
+      _kv(t('Rahu Kaal', 'राहु काल'), rangeText(m.rahu)),
+      _kv(t('Yamaganda', 'यमगंड'), rangeText(m.yamaganda)),
+      _kv(t('Gulika Kaal', 'गुलिक काल'), rangeText(m.gulika)),
+      _kv(t('Abhijit', 'अभिजित'), m.abhijit == null ? t('Not on Wednesdays', 'बुधवार को नहीं') : rangeText(m.abhijit!)),
+      _kv(t('Brahma', 'ब्रह्म मुहूर्त'), rangeText(m.brahma)),
+    ];
+  }
+
+  List<Widget> _spendRows(DateTime date) {
+    final iso = _iso(date);
+    final list = widget.entries.where((e) => e.date == iso && _expenseSections.contains(e.section)).toList();
+    if (list.isEmpty) return const <Widget>[];
+    var total = 0.0;
+    for (final e in list) {
+      total += e.amount;
+    }
+    return [
+      const Divider(height: 22),
+      Row(
+        children: [
+          const Expanded(child: Text('Spent this day', style: TextStyle(fontWeight: FontWeight.bold))),
+          Text(fmtRs(total), style: const TextStyle(fontWeight: FontWeight.bold, color: goldColor)),
+        ],
+      ),
+      const SizedBox(height: 4),
+      ...list.take(8).map((e) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(
+            children: [
+              Expanded(child: Text(e.label(), style: const TextStyle(fontSize: 12.5))),
+              Text(fmtRs(e.amount), style: const TextStyle(fontSize: 12.5)),
+            ],
+          ),
+        );
+      }),
+      if (list.length > 8) Text('+ ${list.length - 8} more', style: const TextStyle(fontSize: 11.5, color: Colors.grey)),
+    ];
+  }
+
+  void _sharePanchang(DateTime date) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ShareCardScreen(
+          title: 'Share Panchang',
+          card: PanchangDayCard(date: date, city: city, purnimanta: purnimanta, lang: lang),
+          caption: 'Panchang - ${DateFormat('EEEE, d MMMM yyyy').format(date)}',
+          fileName: 'panchang_${DateFormat('yyyyMMdd').format(date)}',
+        ),
+      ),
+    );
+  }
+
   Widget _dayDetail(DateTime date) {
     final p = Panchang.day(date);
     if (p == null) {
@@ -506,7 +911,19 @@ class _PlannerScreenState extends State<PlannerScreen> with SingleTickerProvider
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(DateFormat('EEEE, d MMMM yyyy').format(date), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(DateFormat('EEEE, d MMMM yyyy').format(date), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                ),
+                IconButton(
+                  tooltip: 'Share panchang as image',
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.ios_share, size: 20, color: goldColor),
+                  onPressed: () => _sharePanchang(date),
+                ),
+              ],
+            ),
             const SizedBox(height: 4),
             Text(
               '${Panchang.hinduDateLine(p, purnimanta, lang)}  •  ${t('Vikram Samvat', 'विक्रम संवत')} ${Panchang.vikramSamvat(p)}',
@@ -527,6 +944,7 @@ class _PlannerScreenState extends State<PlannerScreen> with SingleTickerProvider
                   ? Panchang.monthName(p.pMonthIdx, p.pAdhika, lang)
                   : Panchang.monthName(p.monthIdx, p.adhika, lang),
             ),
+            ..._muhuratRows(date),
             if (p.events.isNotEmpty) ...[
               const Divider(height: 22),
               Wrap(
@@ -542,6 +960,21 @@ class _PlannerScreenState extends State<PlannerScreen> with SingleTickerProvider
                 }).toList(),
               ),
             ],
+            if ((_tithiDates()[iso] ?? const <TithiEvent>[]).isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: (_tithiDates()[iso] ?? const <TithiEvent>[]).map((e) {
+                  return ActionChip(
+                    avatar: const Icon(Icons.cake_outlined, size: 14, color: Colors.pinkAccent),
+                    label: Text('${tithiKindLabel(e.kind)}: ${e.name}', style: const TextStyle(fontSize: 12)),
+                    onPressed: widget.onOpenTithiEvents,
+                  );
+                }).toList(),
+              ),
+            ],
+            ..._spendRows(date),
             const Divider(height: 22),
             Row(
               children: [
@@ -570,12 +1003,21 @@ class _PlannerScreenState extends State<PlannerScreen> with SingleTickerProvider
     final canNext = Panchang.inRange(DateTime(cursor.year, cursor.month + 1, 1));
     final weekdays = lang == 'hi' ? weekdayShortHi : weekdayShortEn;
 
+    final spend = _spendByDay();
+    var maxSpend = 0.0;
+    var monthSpend = 0.0;
+    spend.forEach((_, v) {
+      monthSpend += v;
+      if (v > maxSpend) maxSpend = v;
+    });
+    final tmap = _tithiDates();
+
     final cells = <Widget>[];
     for (var i = 0; i < startWeekday; i++) {
       cells.add(const SizedBox());
     }
     for (var d = 1; d <= daysInMonth; d++) {
-      cells.add(_cell(d));
+      cells.add(_cell(d, spend, maxSpend, tmap));
     }
 
     return ListView(
@@ -615,6 +1057,37 @@ class _PlannerScreenState extends State<PlannerScreen> with SingleTickerProvider
             ),
           ],
         ),
+        const SizedBox(height: 6),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            ChoiceChip(
+              avatar: const Icon(Icons.brightness_3, size: 14),
+              label: const Text('Tithi'),
+              selected: calMode == 'tithi',
+              onSelected: (_) => setState(() => calMode = 'tithi'),
+            ),
+            const SizedBox(width: 8),
+            ChoiceChip(
+              avatar: const Icon(Icons.local_fire_department, size: 14),
+              label: const Text('Spending'),
+              selected: calMode == 'spend',
+              onSelected: (_) => setState(() => calMode = 'spend'),
+            ),
+          ],
+        ),
+        if (calMode == 'spend')
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Center(
+              child: Text(
+                monthSpend > 0
+                    ? '${DateFormat('MMMM').format(cursor)}: ${fmtRs(monthSpend)} spent  •  busiest day ${fmtRs(maxSpend)}'
+                    : 'No expenses recorded in ${DateFormat('MMMM').format(cursor)}',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ),
+          ),
         const SizedBox(height: 8),
         Row(
           children: weekdays
@@ -641,6 +1114,7 @@ class _PlannerScreenState extends State<PlannerScreen> with SingleTickerProvider
           children: [
             _legendItem(expenseColor, 'Festival / holiday'),
             _legendItem(savingsColor, 'Vrat'),
+            _legendItem(Colors.pinkAccent, 'Your tithi date'),
             _legendItem(incomeColor, 'Planned'),
           ],
         ),
@@ -775,6 +1249,105 @@ class _PlannerScreenState extends State<PlannerScreen> with SingleTickerProvider
     );
   }
 
+  // "Last Diwali you spent Rs X" - what was spent around the previous
+  // occurrences of this festival (from 15 days before to 2 days after).
+  List<Widget> _lastYearCards(DateTime date, String code, String name) {
+    final target = DateTime(date.year, date.month, date.day);
+    final prev = Panchang.occurrencesOf(code).where((d) => d.isBefore(target)).toList();
+    if (prev.isEmpty) return const <Widget>[];
+    final recent = prev.length > 2 ? prev.sublist(prev.length - 2) : prev;
+    final out = <Widget>[const SizedBox(height: 16)];
+
+    for (final d in recent.reversed) {
+      final fromIso = _iso(DateTime(d.year, d.month, d.day - 15));
+      final toIso = _iso(DateTime(d.year, d.month, d.day + 2));
+      final list = widget.entries
+          .where((e) => _expenseSections.contains(e.section) && e.date.compareTo(fromIso) >= 0 && e.date.compareTo(toIso) <= 0)
+          .toList();
+
+      var total = 0.0;
+      final byLabel = <String, double>{};
+      for (final e in list) {
+        total += e.amount;
+        byLabel[e.label()] = (byLabel[e.label()] ?? 0) + e.amount;
+      }
+      final top = byLabel.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+      final shown = top.take(6).toList();
+
+      out.add(Card(
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.history, size: 18, color: goldColor),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Last time: ${DateFormat('d MMM yyyy').format(d)}',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
+                    ),
+                  ),
+                  if (list.isNotEmpty) Text(fmtRs(total), style: const TextStyle(fontWeight: FontWeight.bold, color: goldColor)),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                list.isEmpty
+                    ? 'No expenses were recorded around $name that year.'
+                    : '${list.length} entries from 15 days before to 2 days after',
+                style: const TextStyle(fontSize: 11.5, color: Colors.grey),
+              ),
+              if (shown.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                ...shown.map((e) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Row(
+                      children: [
+                        Expanded(child: Text(e.key, style: const TextStyle(fontSize: 12.5))),
+                        Text(fmtRs(e.value), style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                  );
+                }),
+                if (top.length > shown.length)
+                  Text('+ ${top.length - shown.length} more', style: const TextStyle(fontSize: 11.5, color: Colors.grey)),
+                const SizedBox(height: 6),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: () {
+                      for (final e in shown) {
+                        _persist(
+                          PlanItem(
+                            id: uuid.v4(),
+                            title: e.key,
+                            amount: e.value,
+                            date: _iso(date),
+                            occasionCode: code,
+                            occasionName: name,
+                          ),
+                          isNew: true,
+                        );
+                      }
+                      _snack('Added ${shown.length} items to your plan');
+                    },
+                    icon: const Icon(Icons.playlist_add, size: 18),
+                    label: const Text('Add these to my plan'),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ));
+    }
+    return out;
+  }
+
   Widget _occasionPage(DateTime date, String code) {
     final p = Panchang.day(date);
     final name = Panchang.eventName(code, p, lang);
@@ -819,6 +1392,7 @@ class _PlannerScreenState extends State<PlannerScreen> with SingleTickerProvider
               ),
             ),
           ),
+          ..._lastYearCards(date, code, name),
           if (suggestions.isNotEmpty) ...[
             const SizedBox(height: 16),
             const Text('Typical expenses - tap to add', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -859,6 +1433,18 @@ class _PlannerScreenState extends State<PlannerScreen> with SingleTickerProvider
               label: const Text('Add custom item'),
             ),
           ),
+          if (its.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => _sharePlan(date, code, name, its),
+                  icon: const Icon(Icons.ios_share, size: 18),
+                  label: const Text('Share plan as image'),
+                ),
+              ),
+            ),
           const SizedBox(height: 20),
         ],
       ),
@@ -988,7 +1574,27 @@ class _PlannerScreenState extends State<PlannerScreen> with SingleTickerProvider
     return Scaffold(
       appBar: AppBar(
         title: const Text('Planner & Panchang'),
-        actions: [IconButton(icon: const Icon(Icons.info_outline), onPressed: _showInfo)],
+        actions: [
+          TextButton.icon(
+            onPressed: _pickCity,
+            icon: const Icon(Icons.location_on_outlined, size: 18, color: goldColor),
+            label: Text(city.name, style: const TextStyle(color: goldColor, fontSize: 12)),
+          ),
+          PopupMenuButton<String>(
+            onSelected: (v) {
+              if (v == 'reminders') _nudgeSettings();
+              if (v == 'tithi') widget.onOpenTithiEvents();
+              if (v == 'export') _exportCalendar();
+              if (v == 'about') _showInfo();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'reminders', child: Text('Festival reminders')),
+              PopupMenuItem(value: 'tithi', child: Text('Hindu birthdays & shraddh')),
+              PopupMenuItem(value: 'export', child: Text('Export to Google Calendar')),
+              PopupMenuItem(value: 'about', child: Text('About this calendar')),
+            ],
+          ),
+        ],
         bottom: TabBar(
           controller: _tabs,
           labelColor: goldColor,
