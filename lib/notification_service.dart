@@ -8,6 +8,16 @@ import 'helpers.dart';
 // server or internet is needed at notification-time — Android's own alarm
 // system fires these even if the app is closed (as long as the OS hasn't
 // been told to aggressively kill the app's background activity).
+// A one-off notification at an exact moment (festival nudges, tithi dates,
+// vehicle service alerts). [key] makes its id stable so it can be replaced.
+class ScheduledNote {
+  final String key;
+  final DateTime at;
+  final String title;
+  final String body;
+  const ScheduledNote(this.key, this.at, this.title, this.body);
+}
+
 class NotificationService {
   static final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
   static bool _initialized = false;
@@ -97,7 +107,35 @@ class NotificationService {
     } catch (_) {}
   }
 
-  static Future<void> rescheduleAll(List<Reminder> reminders) async {
+  static Future<void> scheduleNote(ScheduledNote n) async {
+    if (!_initialized) await init();
+    if (!_initialized) return;
+    final fireAt = tz.TZDateTime(tz.local, n.at.year, n.at.month, n.at.day, n.at.hour, n.at.minute);
+    final now = tz.TZDateTime.now(tz.local);
+    if (!fireAt.isAfter(now)) return;
+
+    const androidDetails = AndroidNotificationDetails(
+      'planner_alerts',
+      'Planner & Service Alerts',
+      channelDescription: 'Festival, birthday and vehicle service reminders from Kharcha Manager',
+      importance: Importance.high,
+      priority: Priority.high,
+    );
+    const details = NotificationDetails(android: androidDetails);
+    try {
+      await _plugin.zonedSchedule(
+        _notifId(n.key),
+        n.title,
+        n.body,
+        fireAt,
+        details,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+      );
+    } catch (_) {}
+  }
+
+  static Future<void> rescheduleAll(List<Reminder> reminders, {List<ScheduledNote> extras = const []}) async {
     if (!_initialized) await init();
     if (!_initialized) return;
     try {
@@ -105,6 +143,9 @@ class NotificationService {
     } catch (_) {}
     for (final r in reminders.where((r) => !r.done)) {
       await scheduleReminder(r);
+    }
+    for (final n in extras) {
+      await scheduleNote(n);
     }
   }
 }
