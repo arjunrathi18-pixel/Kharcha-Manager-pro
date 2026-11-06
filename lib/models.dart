@@ -592,3 +592,155 @@ class PlanItem {
     );
   }
 }
+
+
+/* ============================== PLANNER PREFERENCES ============================== */
+
+// Festivals that get an automatic "plan your expenses" reminder by default.
+const List<String> kDefaultNudgeCodes = [
+  'diwali', 'dhanteras', 'holi', 'raksha_bandhan', 'karwa_chauth', 'dussehra', 'navratri_start',
+  'ganesh_chaturthi', 'janmashtami', 'makar_sankranti', 'bhai_dooj', 'mahashivaratri', 'ram_navami',
+  'eid_ul_fitr', 'christmas',
+];
+
+class PlannerPrefs {
+  String cityKey;
+  bool nudgesOn;
+  int nudgeLeadDays;
+  List<String> nudgeCodes;
+
+  PlannerPrefs({
+    this.cityKey = 'delhi',
+    this.nudgesOn = true,
+    this.nudgeLeadDays = 15,
+    List<String>? nudgeCodes,
+  }) : nudgeCodes = nudgeCodes ?? List<String>.from(kDefaultNudgeCodes);
+
+  Map<String, dynamic> toJson() {
+    return {
+      'cityKey': cityKey,
+      'nudgesOn': nudgesOn,
+      'nudgeLeadDays': nudgeLeadDays,
+      'nudgeCodes': nudgeCodes,
+    };
+  }
+
+  factory PlannerPrefs.fromJson(Map<String, dynamic> j) {
+    final codes = j['nudgeCodes'];
+    return PlannerPrefs(
+      cityKey: j['cityKey'] ?? 'delhi',
+      nudgesOn: j['nudgesOn'] ?? true,
+      nudgeLeadDays: (j['nudgeLeadDays'] as num?)?.toInt() ?? 15,
+      nudgeCodes: codes is List ? codes.map((e) => e.toString()).toList() : null,
+    );
+  }
+}
+
+/* ============================== HINDU BIRTHDAYS / SHRADDH ============================== */
+// A date that repeats every year by TITHI (not by the Gregorian date):
+// a Hindu birthday, a wedding anniversary, a shraddh / punya tithi, etc.
+
+class TithiEvent {
+  String id;
+  String name;
+  String kind; // birthday | anniversary | shraddh | other
+  int monthIdx; // amanta month, 0 = Chaitra ... 11 = Phalguna
+  int tithi; // 1..30 (1-15 Shukla, 16-30 Krishna)
+  String note;
+  int remindDaysBefore;
+  String sourceDate; // Gregorian date it was worked out from, '' if entered manually
+
+  TithiEvent({
+    required this.id,
+    required this.name,
+    this.kind = 'birthday',
+    required this.monthIdx,
+    required this.tithi,
+    this.note = '',
+    this.remindDaysBefore = 1,
+    this.sourceDate = '',
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'kind': kind,
+      'monthIdx': monthIdx,
+      'tithi': tithi,
+      'note': note,
+      'remindDaysBefore': remindDaysBefore,
+      'sourceDate': sourceDate,
+    };
+  }
+
+  factory TithiEvent.fromJson(Map<String, dynamic> j) {
+    return TithiEvent(
+      id: j['id'],
+      name: j['name'] ?? '',
+      kind: j['kind'] ?? 'birthday',
+      monthIdx: (j['monthIdx'] as num?)?.toInt() ?? 0,
+      tithi: (j['tithi'] as num?)?.toInt() ?? 1,
+      note: j['note'] ?? '',
+      remindDaysBefore: (j['remindDaysBefore'] as num?)?.toInt() ?? 1,
+      sourceDate: j['sourceDate'] ?? '',
+    );
+  }
+}
+
+/* ============================== VEHICLE SERVICE REMINDER ============================== */
+// One per vehicle type ('bike' / 'car'). The next service is due after
+// [intervalKm] kilometres OR [intervalMonths] months from the last service,
+// whichever comes first.
+
+class ServiceSettings {
+  int intervalKm;
+  int intervalMonths;
+  int warnKm;
+  int warnDays;
+  bool remind;
+  double? lastServiceKm; // manual starting point (before any service entry exists)
+  String? lastServiceDate;
+  double? currentKmManual; // optional manual odometer reading
+  String? currentKmManualDate;
+
+  ServiceSettings({
+    this.intervalKm = 6000,
+    this.intervalMonths = 6,
+    this.warnKm = 500,
+    this.warnDays = 15,
+    this.remind = true,
+    this.lastServiceKm,
+    this.lastServiceDate,
+    this.currentKmManual,
+    this.currentKmManualDate,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'intervalKm': intervalKm,
+      'intervalMonths': intervalMonths,
+      'warnKm': warnKm,
+      'warnDays': warnDays,
+      'remind': remind,
+      'lastServiceKm': lastServiceKm,
+      'lastServiceDate': lastServiceDate,
+      'currentKmManual': currentKmManual,
+      'currentKmManualDate': currentKmManualDate,
+    };
+  }
+
+  factory ServiceSettings.fromJson(Map<String, dynamic> j) {
+    return ServiceSettings(
+      intervalKm: (j['intervalKm'] as num?)?.toInt() ?? 6000,
+      intervalMonths: (j['intervalMonths'] as num?)?.toInt() ?? 6,
+      warnKm: (j['warnKm'] as num?)?.toInt() ?? 500,
+      warnDays: (j['warnDays'] as num?)?.toInt() ?? 15,
+      remind: j['remind'] ?? true,
+      lastServiceKm: (j['lastServiceKm'] as num?)?.toDouble(),
+      lastServiceDate: j['lastServiceDate'],
+      currentKmManual: (j['currentKmManual'] as num?)?.toDouble(),
+      currentKmManualDate: j['currentKmManualDate'],
+    );
+  }
+}
