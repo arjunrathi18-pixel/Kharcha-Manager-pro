@@ -5,6 +5,9 @@ import '../models.dart';
 import '../helpers.dart';
 import '../translations.dart';
 import '../panchang.dart';
+import '../service_logic.dart';
+import 'universal_search_view.dart';
+import 'history_screen.dart';
 
 /* ============================== CATEGORY ENTRIES SCREEN ============================== */
 
@@ -110,6 +113,8 @@ class DashboardTab extends StatelessWidget {
   final VoidCallback onOpenGoals;
   final List<PlanItem> planItems;
   final void Function({int tab}) onOpenPlanner;
+  final Map<String, ServiceSettings> serviceSettings;
+  final VoidCallback onOpenService;
   final void Function(Entry) onEditEntry;
   final String lang;
 
@@ -124,6 +129,8 @@ class DashboardTab extends StatelessWidget {
     required this.onOpenGoals,
     required this.planItems,
     required this.onOpenPlanner,
+    required this.serviceSettings,
+    required this.onOpenService,
     required this.milkLitresPerDay,
     required this.milkPricePerLitre,
     required this.onEditEntry,
@@ -259,6 +266,7 @@ class DashboardTab extends StatelessWidget {
         goalsCard(),
         const SizedBox(height: 12),
         plannerCard(),
+        serviceCard(),
         const SizedBox(height: 20),
         Text(tr('This Month by Section', lang), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
         const SizedBox(height: 4),
@@ -296,6 +304,80 @@ class DashboardTab extends StatelessWidget {
           );
         }),
       ],
+    );
+  }
+
+  // Next-service status for each vehicle that has a service baseline.
+  Widget serviceCard() {
+    final used = vehicleTypesInUse(entries);
+    if (used.isEmpty) return const SizedBox.shrink();
+    final infos = <ServiceInfo>[];
+    for (final vt in used) {
+      final info = computeServiceInfo(entries, vt, serviceSettings[vt] ?? ServiceSettings());
+      if (info.hasBaseline) infos.add(info);
+    }
+
+    Color colorFor(String status) {
+      if (status == 'overdue') return expenseColor;
+      if (status == 'soon') return goldColor;
+      return incomeColor;
+    }
+
+    String lineFor(ServiceInfo i) {
+      final parts = <String>[];
+      final km = i.kmLeft;
+      if (km != null) parts.add(km <= 0 ? '${fmtNum((-km).roundToDouble())} km over' : '${fmtNum(km.roundToDouble())} km left');
+      final d = i.daysLeft;
+      if (d != null) parts.add(d <= 0 ? '${-d} days overdue' : '$d days left');
+      return parts.isEmpty ? 'Set the odometer to track the distance' : parts.join('  •  ');
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Card(
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onOpenService,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.build_circle_outlined, color: goldColor, size: 18),
+                    const SizedBox(width: 8),
+                    const Expanded(child: Text('Service reminders', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15))),
+                    const Icon(Icons.chevron_right, size: 18, color: Colors.grey),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                if (infos.isEmpty)
+                  const Text(
+                    'Tell the app when your last service was and it will remind you when the next one is due (by km or months).',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  )
+                else
+                  ...infos.map((i) {
+                    final c = colorFor(i.status);
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 3),
+                      child: Row(
+                        children: [
+                          Icon(i.vehicleType == 'car' ? Icons.directions_car : Icons.two_wheeler, size: 18, color: c),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text('${i.vehicleLabel}: ${lineFor(i)}', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: c)),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -1150,74 +1232,24 @@ class SearchTab extends StatefulWidget {
 }
 
 class _SearchTabState extends State<SearchTab> {
-  String query = '';
-  String section = 'all';
-
   @override
   Widget build(BuildContext context) {
-    final results = widget.entries.where((e) {
-      if (section != 'all' && e.section != section) return false;
-      if (query.isNotEmpty) {
-        final hay = '${e.label()} ${e.notes}'.toLowerCase();
-        if (!hay.contains(query.toLowerCase())) return false;
-      }
-      return true;
-    }).toList();
-    results.sort((a, b) => b.date.compareTo(a.date));
-
-    final total = results.fold(0.0, (s, e) => s + e.amount);
-    final sectionKeys = ['all', 'home', 'personal', 'vehicle', 'income', 'savings'];
-
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(12),
-          child: TextField(
-            decoration: InputDecoration(
-              prefixIcon: const Icon(Icons.search),
-              labelText: tr('Search notes or category', widget.lang),
-              border: const OutlineInputBorder(),
-            ),
-            onChanged: (v) => setState(() => query = v),
-          ),
-        ),
-        SizedBox(
-          height: 40,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            children: sectionKeys.map((s) {
-              return Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: ChoiceChip(
-                  label: Text(s == 'all' ? tr('All', widget.lang) : secLabelFor(s, widget.lang)),
-                  selected: section == s,
-                  onSelected: (_) => setState(() => section = s),
-                ),
-              );
-            }).toList(),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('${results.length} ${tr('results', widget.lang)}'),
-              Text(fmtRs(total), style: const TextStyle(fontWeight: FontWeight.bold, color: goldColor)),
-            ],
-          ),
-        ),
-        Expanded(
-          child: results.isEmpty
-              ? Center(child: Text(tr('No matching entries.', widget.lang)))
-              : ListView(
-                  children: results.map((e) {
-                    return EntryTile(entry: e, onDelete: () => widget.onDelete(e.id), onEdit: () => widget.onEdit(e));
-                  }).toList(),
-                ),
-        ),
-      ],
+    return UniversalSearchView(
+      entries: widget.entries,
+      lang: widget.lang,
+      tileBuilder: (e, pct) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            EntryTile(entry: e, onDelete: () => widget.onDelete(e.id), onEdit: () => widget.onEdit(e)),
+            if (pct != null)
+              Padding(
+                padding: const EdgeInsets.only(right: 6, bottom: 2),
+                child: PriceChangeChip(pct: pct),
+              ),
+          ],
+        );
+      },
     );
   }
 }
