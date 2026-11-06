@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import '../models.dart';
 import '../helpers.dart';
 import '../grocery_data.dart';
+import '../price_history.dart';
+import 'history_screen.dart';
 
 class GroceryScreen extends StatefulWidget {
   final void Function(Entry) onSave;
+  final List<Entry> history;
 
-  const GroceryScreen({super.key, required this.onSave});
+  const GroceryScreen({super.key, required this.onSave, this.history = const <Entry>[]});
 
   @override
   State<GroceryScreen> createState() => _GroceryScreenState();
@@ -22,7 +25,7 @@ class _GroceryScreenState extends State<GroceryScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => GroceryItemSheet(item: item, categoryLabel: catLabel, onSave: widget.onSave),
+      builder: (_) => GroceryItemSheet(item: item, categoryLabel: catLabel, history: widget.history, onSave: widget.onSave),
     );
   }
 
@@ -170,12 +173,31 @@ class _GroceryScreenState extends State<GroceryScreen> {
   }
 }
 
+const List<String> _groceryUnits = ['Kg', 'Litre', 'Piece', 'Dozen', 'Packet', 'Gram'];
+
+// Oils, milk and juices are bought by the litre, eggs by the dozen, the rest by weight.
+String _defaultUnitFor(String label) {
+  final l = label.toLowerCase();
+  if (l.contains('egg') || l.contains('anda') || l.contains('अंडा')) return 'Dozen';
+  for (final k in ['oil', 'tel', 'तेल', 'milk', 'doodh', 'दूध', 'juice', 'vinegar', 'syrup', 'water']) {
+    if (l.contains(k)) return 'Litre';
+  }
+  return 'Kg';
+}
+
 class GroceryItemSheet extends StatefulWidget {
   final GroceryItem item;
   final String categoryLabel;
+  final List<Entry> history;
   final void Function(Entry) onSave;
 
-  const GroceryItemSheet({super.key, required this.item, required this.categoryLabel, required this.onSave});
+  const GroceryItemSheet({
+    super.key,
+    required this.item,
+    required this.categoryLabel,
+    this.history = const <Entry>[],
+    required this.onSave,
+  });
 
   @override
   State<GroceryItemSheet> createState() => _GroceryItemSheetState();
@@ -188,6 +210,22 @@ class _GroceryItemSheetState extends State<GroceryItemSheet> {
   String date = todayISO();
   String lastEdited = 'qty';
   String? err;
+  late String unit;
+  late List<Entry> past;
+
+  @override
+  void initState() {
+    super.initState();
+    past = historyFor(
+      widget.history,
+      section: 'home',
+      category: 'ration',
+      customLabel: widget.item.label,
+    );
+    // Same unit as last time; otherwise a sensible guess for this item.
+    final lastUnit = past.isNotEmpty ? (past.first.unitLabel ?? '') : '';
+    unit = _groceryUnits.contains(lastUnit) ? lastUnit : _defaultUnitFor(widget.item.label);
+  }
 
   void recompute() {
     final qty = double.tryParse(qtyCtrl.text) ?? 0;
@@ -218,7 +256,7 @@ class _GroceryItemSheetState extends State<GroceryItemSheet> {
       amount: amt,
       quantity: double.tryParse(qtyCtrl.text),
       rate: double.tryParse(rateCtrl.text),
-      unitLabel: 'Kg',
+      unitLabel: unit,
       customLabel: widget.item.label,
       notes: widget.categoryLabel,
       createdAt: DateTime.now().millisecondsSinceEpoch,
@@ -250,7 +288,46 @@ class _GroceryItemSheetState extends State<GroceryItemSheet> {
                 ],
               ),
               Text(widget.categoryLabel, style: const TextStyle(fontSize: 11.5, color: Colors.grey)),
-              const SizedBox(height: 14),
+              const SizedBox(height: 12),
+              if (past.isNotEmpty) ...[
+                LastPurchaseCard(
+                  history: past,
+                  onOpenHistory: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => HistoryScreen(title: '${widget.item.label} - history', entries: past)),
+                    );
+                  },
+                ),
+                if (unitPrice(past.first) != null)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: ActionChip(
+                      avatar: const Icon(Icons.replay, size: 16),
+                      label: Text(
+                        'Use last rate ${fmtRs(unitPrice(past.first)!)}/${(past.first.unitLabel ?? unit)}',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      onPressed: () => setState(() {
+                        rateCtrl.text = unitPrice(past.first)!.toStringAsFixed(2);
+                        lastEdited = 'rate';
+                        recompute();
+                      }),
+                    ),
+                  ),
+                const SizedBox(height: 8),
+              ],
+              Wrap(
+                spacing: 8,
+                children: _groceryUnits.map((u) {
+                  return ChoiceChip(
+                    label: Text(u, style: const TextStyle(fontSize: 12)),
+                    selected: unit == u,
+                    onSelected: (_) => setState(() => unit = u),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 10),
               TextField(
                 readOnly: true,
                 controller: TextEditingController(text: date),
@@ -272,7 +349,7 @@ class _GroceryItemSheetState extends State<GroceryItemSheet> {
                     child: TextField(
                       controller: qtyCtrl,
                       keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'Quantity (Kg)'),
+                      decoration: InputDecoration(labelText: 'Quantity ($unit)'),
                       onChanged: (_) => setState(() {
                         lastEdited = 'qty';
                         recompute();
@@ -284,7 +361,7 @@ class _GroceryItemSheetState extends State<GroceryItemSheet> {
                     child: TextField(
                       controller: rateCtrl,
                       keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: '₹ / Kg'),
+                      decoration: InputDecoration(labelText: '₹ / $unit'),
                       onChanged: (_) => setState(() {
                         lastEdited = 'rate';
                         recompute();
